@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Database } from 'bun:sqlite';
 import { createBridge, limits } from './bridge.mjs';
-import { loadConfig } from './config.mjs';
+import { loadConfig, validateConfig } from './config.mjs';
 
-test('synthetic owner isolation, strict metadata and queued trusted-worker completion', async () => {
+test('aggregate synthetic v1 compatibility, v2 grants/isolation/revocation and bounded history/audit', async () => {
   const directory = await mkdtemp(join(await realpath(tmpdir()), 'vault-web-fixture-'));
   await chmod(directory, 0o700);
   const ownerA = '11111111-1111-4111-8111-111111111111';
@@ -162,6 +162,150 @@ test('synthetic owner isolation, strict metadata and queued trusted-worker compl
       expect((await readFile(config.databasePath)).includes(Buffer.from(forbidden))).toBe(false);
     }
     expect(upstreamCalls.every(url => url === config.vaultOrigin + '/api/accounts/profile' || url === config.engineAddress + '/health')).toBe(true);
+
+    // The same single aggregate case now exercises the opt-in v2 boundary.
+    const teamConfig = { ...config, version: 2, allowedUserIds: [ownerA, ownerB, outsider],
+      permissionsPath: join(directory, 'permissions.json') };
+    const rowB = { ...row, accountId: 'synthetic-b', credentialRef: 'VW_SYNTHETICB',
+      name: 'Synthetic B GoDial', username: 'b@example.invalid', origins: ['https://app.godial.cc'] };
+    const teamManifest = { ...manifest, accounts: [{ ...row, origins: ['https://app.clickup.com', 'https://app.godial.cc'] },
+      rowB, manifest.accounts[1]] };
+    let policy = { version: 1, revision: 0, owners: [{ ownerId: ownerA, accountIds: [row.accountId, 'unsupported'] },
+      { ownerId: ownerB, accountIds: [rowB.accountId] }], grants: [
+      { ownerId: ownerA, userId: ownerA, accountId: row.accountId, provider: 'clickup' },
+      { ownerId: ownerB, userId: ownerB, accountId: rowB.accountId, provider: 'godial' }] };
+    const readPolicy = async () => JSON.parse(await readFile(teamConfig.permissionsPath, 'utf8'));
+    const edit = (ownerId, grants, expectedRevision = policy.revision) => bridge.replaceOwnerGrants({ ownerId, grants, expectedRevision });
+    expect(() => validateConfig({ ...config, permissionsPath: teamConfig.permissionsPath })).toThrow('bridge_unavailable');
+    expect(() => validateConfig({ ...config, version: 2 })).toThrow('bridge_unavailable');
+    await save(config.manifestPath, teamManifest);
+    await save(configPath, teamConfig);
+    await expect(createBridge({ config: teamConfig, fetchImpl, now: () => time })).rejects.toThrow('bridge_unavailable');
+    for (const invalid of [
+      { ...policy, owners: [...policy.owners, { ownerId: outsider, accountIds: [row.accountId] }] },
+      { ...policy, grants: [{ ...policy.grants[0], ownerId: ownerB }] },
+      { ...policy, grants: [{ ...policy.grants[0], userId: '44444444-4444-4444-8444-444444444444' }] },
+      { ...policy, grants: [{ ...policy.grants[0], provider: 'unsupported' }] },
+      { ...policy, grants: [...policy.grants, policy.grants[0]] },
+    ]) {
+      await save(teamConfig.permissionsPath, invalid);
+      await expect(createBridge({ config: teamConfig, fetchImpl, now: () => time })).rejects.toThrow('bridge_unavailable');
+    }
+    await save(teamConfig.permissionsPath, policy);
+    bridge = await createBridge({ config: await loadConfig(configPath), fetchImpl, now: () => time });
+    expect((await call('/accounts', { token: 'outsider' })).value).toEqual({ accounts: [] });
+    expect((await call('/status', { token: 'outsider' })).value).toEqual({ state: 'ready', browserMode: 'chat-assisted', importedAccounts: 0, supportedAccounts: 0 });
+    expect((await queue({ token: 'outsider' })).status).toBe(403);
+    expect((await call('/accounts')).value.accounts.map(a => [a.accountId, a.provider])).toEqual([[row.accountId, 'clickup']]);
+    expect((await call('/accounts', { token: 'owner-b' })).value.accounts.map(a => [a.accountId, a.provider])).toEqual([[rowB.accountId, 'godial']]);
+    expect((await call('/status')).value).toEqual({ state: 'ready', browserMode: 'chat-assisted', importedAccounts: 1, supportedAccounts: 1 });
+    expect((await post('/requests', { accountId: row.accountId, provider: 'godial' })).status).toBe(403);
+    expect((await post('/requests', { accountId: rowB.accountId, provider: 'godial' })).status).toBe(403);
+    expect((await queue({ token: 'owner-b' })).status).toBe(403);
+    expect((await call('/requests', { token: null })).status).toBe(401);
+    expect((await call('/requests')).value).toEqual({ requests: [] });
+    const ownA = (await queue()).value.requestId;
+    const ownB = (await post('/requests', { accountId: rowB.accountId, provider: 'godial' }, { token: 'owner-b' })).value.requestId;
+    expect((await call('/requests/' + ownA, { token: 'owner-b' })).status).toBe(404);
+    expect((await post('/requests/' + ownA + '/cancel', {}, { token: 'owner-b' })).status).toBe(404);
+    expect((await call('/requests/' + ownB)).status).toBe(404);
+    expect((await post('/requests/' + ownB + '/cancel', {})).status).toBe(404);
+    expect((await call('/requests')).value.requests.map(r => r.requestId)).toEqual([ownA]);
+    expect((await call('/requests', { token: 'owner-b' })).value.requests.map(r => r.requestId)).toEqual([ownB]);
+    // Owner A cannot grant owner B's imports; failed/stale edits preserve policy.
+    await expect(edit(ownerA, [{ userId: ownerA, accountId: rowB.accountId, provider: 'godial' }])).rejects.toThrow('bridge_unavailable');
+    expect(await readPolicy()).toEqual(policy);
+    await expect(edit(outsider, [])).rejects.toThrow('bridge_unavailable');
+    const lockfile = teamConfig.permissionsPath + '.lock';
+    await save(lockfile, 'synthetic-other-writer');
+    await expect(edit(ownerA, [])).rejects.toThrow('bridge_unavailable');
+    expect(await readFile(lockfile, 'utf8')).toBe('synthetic-other-writer');
+    expect(await readPolicy()).toEqual(policy);
+    await rm(lockfile);
+    expect(await edit(ownerA, [])).toEqual({ revision: 1 });
+    policy = await readPolicy();
+    expect(policy.grants).toEqual([{ ownerId: ownerB, userId: ownerB, accountId: rowB.accountId, provider: 'godial' }]);
+    expect((await claim(ownA)).status).toBe(403); // Revoked queued work never reaches working.
+    expect((await claim(ownA)).status).toBe(409);
+    expect((await call('/accounts')).value).toEqual({ accounts: [] });
+    expect((await call('/requests')).value).toEqual({ requests: [] });
+    expect((await call('/requests/' + ownA)).status).toBe(404);
+    expect((await post('/requests/' + ownA + '/cancel', {})).status).toBe(404);
+    expect((await queue()).status).toBe(403);
+    await expect(edit(ownerA, [], 0)).rejects.toThrow('bridge_unavailable');
+    const ownGrant = { userId: ownerA, accountId: row.accountId, provider: 'clickup' };
+    // Sharing is explicit and provider-scoped. Ownership remains request-user scoped.
+    await edit(ownerA, [ownGrant, { ...ownGrant, userId: ownerB }]); policy = await readPolicy();
+    expect((await call('/accounts', { token: 'owner-b' })).value.accounts.length).toBe(2);
+    expect((await call('/requests/' + ownA, { token: 'owner-b' })).status).toBe(404);
+    expect((await call('/requests/' + ownA)).value.state).toBe('cancelled');
+    expect((await claim(ownB)).status).toBe(200);
+    expect((await complete(ownB, 'signed_in', true)).status).toBe(200);
+    const pending = (await queue()).value.requestId;
+    // Missing/malformed/unsafe policy fails closed on every existing user route,
+    // history, and worker transitions. Restoring policy does not auto-execute.
+    await save(teamConfig.permissionsPath, { ...policy, unexpected: true });
+    for (const pathname of ['/accounts', '/status', '/requests', '/requests/' + pending]) {
+      const before = upstreamCalls.length;
+      expect((await call(pathname)).status).toBe(503);
+      expect(upstreamCalls.length).toBe(before + 1); // A fresh fixed profile GET each time.
+    }
+    expect((await queue()).status).toBe(503);
+    expect((await post('/requests/' + pending + '/cancel', {})).status).toBe(503);
+    expect((await claim(pending)).status).toBe(503);
+    await rm(teamConfig.permissionsPath);
+    expect((await call('/accounts')).status).toBe(503);
+    expect((await claim(pending)).status).toBe(503);
+    await save(teamConfig.permissionsPath, policy);
+    await chmod(teamConfig.permissionsPath, 0o644);
+    expect((await call('/requests')).status).toBe(503);
+    await chmod(teamConfig.permissionsPath, 0o600);
+    expect((await call('/requests/' + pending)).value.state).toBe('queued');
+    expect((await claim(pending)).status).toBe(200);
+    await edit(ownerA, []); policy = await readPolicy();
+    expect((await complete(pending, 'signed_in', true)).status).toBe(403);
+    await edit(ownerA, [ownGrant]); policy = await readPolicy();
+    expect((await call('/requests/' + pending)).value.state).toBe('failed');
+    expect((await complete(pending, 'signed_in', true)).status).toBe(409);
+    const newest = [];
+    for (let i = 0; i < 28; i++) {
+      const request = (await queue()).value;
+      expect(request.state).toBe('queued');
+      newest.push(request.requestId);
+      expect((await post('/requests/' + request.requestId + '/cancel', {})).value.state).toBe('cancelled');
+    }
+    const history = (await call('/requests')).value;
+    expect(Object.keys(history)).toEqual(['requests']);
+    expect(history.requests.map(r => r.requestId)).toEqual(newest.reverse().slice(0, 25));
+    const publicKeys = ['requestId', 'state', 'provider', 'name', 'username', 'origin', 'expiresAt', 'identityVerified'];
+    for (const request of history.requests) expect(Object.keys(request)).toEqual(publicKeys);
+    expect((await call('/requests', { token: 'owner-b' })).value.requests.map(r => r.requestId)).toEqual([ownB]);
+    expect((await post('/admin/grants', {})).status).toBe(404);
+    // Exercise the actual audit cap using denied synthetic requests, not a second test.
+    for (let i = 0; i < limits.auditRecords + 1; i++) expect((await queue({ token: 'outsider' })).status).toBe(403);
+    bridge.close(); bridge = undefined;
+    const auditDb = new Database(config.databasePath, { readonly: true });
+    expect(auditDb.query('SELECT count(*) AS n FROM audit').get().n).toBe(limits.auditRecords);
+    expect(auditDb.query('PRAGMA table_info(audit)').all().map(c => c.name)).toEqual([
+      'sequence', 'createdAt', 'actorId', 'action', 'requestId', 'accountId', 'provider']);
+    expect(auditDb.query('SELECT state FROM jobs WHERE requestId=?').get(ownA).state).toBe('cancelled');
+    auditDb.close();
+    const outputs = observed.join('\n');
+    for (const forbidden of [sentinel, credentialRef, workerToken, directory, ownerA, ownerB, outsider, 'credentialRef', 'password']) {
+      expect(outputs).not.toContain(forbidden);
+    }
+    for (const forbidden of [sentinel, credentialRef, workerToken, directory]) {
+      expect((await readFile(config.databasePath)).includes(Buffer.from(forbidden))).toBe(false);
+    }
+    // Retention/restart remains bounded across policy versions, including audit.
+    time += limits.retentionMs + limits.ttlMs;
+    bridge = await createBridge({ config: teamConfig, fetchImpl, now: () => time });
+    expect((await call('/requests')).value).toEqual({ requests: [] });
+    bridge.close(); bridge = undefined;
+    const emptyDb = new Database(config.databasePath, { readonly: true });
+    expect(emptyDb.query('SELECT count(*) AS n FROM audit').get().n).toBe(0);
+    expect(emptyDb.query('SELECT count(*) AS n FROM jobs').get().n).toBe(0);
+    emptyDb.close();
   } finally {
     bridge?.close();
     await rm(directory, { recursive: true, force: true });
