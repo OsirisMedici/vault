@@ -1,0 +1,107 @@
+<app-header title="Agent access"></app-header>
+
+<bit-container>
+  <div class="tw-w-full tw-max-w-2xl">
+    <p bitTypography="body1">
+      Select an imported account and request a sign-in through this chat's connected browser.
+      Keep this chat's browser connection active. Requests need chat assistance to run.
+    </p>
+    <p bitTypography="body2">
+      Only ClickUp and GoDial are available. This list uses imported metadata and does not sync
+      changes from your Vault. Passwords and verification codes are never shown here.
+    </p>
+
+    @if (!unlocked()) {
+      <p bitTypography="body1" role="status">Unlock your Vault to use Agent access.</p>
+    } @else {
+      <div class="tw-my-4" aria-live="polite" aria-atomic="true">
+        @if (loading()) {
+          <p bitTypography="body1">Loading imported accounts...</p>
+        }
+        @if (status(); as status) {
+          <p bitTypography="body2">
+            {{ status.importedAccounts }} imported accounts. {{ accounts().length }} supported account choices.
+            Browser mode: chat-assisted.
+          </p>
+          @if (status.state === "engine_unavailable") {
+            <bit-callout type="warning" title="Sign-in service unavailable">
+              Imported metadata may still be listed. Refresh when the sign-in service is available.
+            </bit-callout>
+          }
+        }
+        @if (error(); as message) {
+          <bit-callout type="warning" title="Agent access needs attention">{{ message }}</bit-callout>
+        }
+      </div>
+
+      <form (ngSubmit)="submit()">
+        <bit-form-field>
+          <bit-label>Imported account</bit-label>
+          <bit-select
+            id="agent-vault-account"
+            name="account"
+            [ngModel]="selectedKey()"
+            (ngModelChange)="selectedKey.set($event)"
+            [disabled]="!canSelect()"
+            placeholder="Select an imported account"
+          >
+            @for (account of accounts(); track accountKey(account)) {
+              <bit-option
+                [value]="accountKey(account)"
+                [label]="(account.name || 'Unnamed account') + ' · ' + account.provider + ' · ' + (account.username || 'No username')"
+              ></bit-option>
+            }
+          </bit-select>
+          <bit-hint>Select the account and provider you want this chat to use.</bit-hint>
+        </bit-form-field>
+        @if (selected(); as account) {
+          <div class="tw-mb-4 tw-break-words">
+            <p bitTypography="body2">Account: {{ account.name || "Unnamed account" }}</p>
+            <p bitTypography="body2">Username: {{ account.username || "No username" }}</p>
+            <p bitTypography="body2">Provider: {{ account.provider }}. Origin: {{ account.origin }}</p>
+          </div>
+        }
+        @if (!loading() && status() && accounts().length === 0) {
+          <p bitTypography="body1">No supported imported accounts are available.</p>
+        }
+        <div class="tw-flex tw-flex-wrap tw-gap-2 tw-mb-6">
+          <button bitButton buttonType="primary" type="submit" [disabled]="!canSubmit()">
+            {{ submitting() ? "Requesting sign-in..." : "Request sign-in" }}
+          </button>
+          <button bitButton buttonType="secondary" type="button" (click)="refresh()" [disabled]="!canSelect()">
+            Refresh
+          </button>
+        </div>
+      </form>
+
+      @if (request(); as request) {
+        <section aria-labelledby="agent-vault-request-title" class="tw-break-words">
+          <h2 bitTypography="h3" id="agent-vault-request-title">Sign-in request</h2>
+          <div role="status" aria-live="polite" aria-atomic="true">
+            <p bitTypography="body1">{{ requestMessage() }}</p>
+            <p bitTypography="body2">Last confirmed state: {{ request.state }}</p>
+          </div>
+          <p bitTypography="body2">{{ request.name || "Unnamed account" }} · {{ request.username || "No username" }} · {{ request.provider }}</p>
+          <p bitTypography="body2">Origin: {{ request.origin }}</p>
+          <p bitTypography="body2">Expires: {{ request.expiresAt | date: "medium" }}</p>
+          <p bitTypography="body2">Request ID: <code class="tw-select-text">{{ request.requestId }}</code></p>
+          <p bitTypography="body2">If needed, copy only the request ID into this chat so it can continue this request.</p>
+          <div class="tw-flex tw-flex-wrap tw-gap-2">
+            <button bitButton buttonType="secondary" type="button" (click)="copyRequestId()">Copy request ID</button>
+            @if (request.state === "queued") {
+              <button bitButton buttonType="secondary" type="button" (click)="cancel()" [disabled]="cancelling()">
+                {{ cancelling() ? "Cancelling..." : "Cancel queued request" }}
+              </button>
+            }
+            @if (updatesPaused()) {
+              <button bitButton buttonType="secondary" type="button" (click)="resumeUpdates()" [disabled]="cancelling()">Check status</button>
+            }
+          </div>
+          @if (copyMessage(); as message) {
+            <p bitTypography="body2" role="status">{{ message }}</p>
+          }
+        </section>
+      }
+    }
+  </div>
+</bit-container>
