@@ -1,5 +1,12 @@
 # Phase-two assembly status
 
+Current release and pending acceptance are recorded in
+[the v2 release ledger](agent-vault-v2-release-2026-10-23.md).
+All five source assignments are assembled and the web/bridge are deployed.
+The original browser-only status below is historical. Osiris requested that
+Pranshi take over the remaining production work on Raven; the VPS stays live.
+Seven of ten aggregate cases passed; three authenticated/browser cases remain.
+
 Shared implementation base: `9598603d763dd2e092da7da78a4f346e2d3aca98`.
 The original manager owns assembly and live acceptance. Workers keep their
 assigned base even when this integration branch advances.

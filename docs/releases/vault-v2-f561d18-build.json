@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "sourceRevision": "f561d1862dc95d86689585f080acedf12e6fc3a7",
+  "upstreamCommit": "d2a095eb800fe80a9bc524579b974796eae51994",
+  "webVersion": "2026.7.0",
+  "toolchain": {
+    "bun": "1.4.4",
+    "compilerNode": "26.12.0",
+    "python": "Python 3.13.3",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "toolingPinSha256": "ee9c2389c9724bdeaf1820ef70fa2e3edc61fceb4c0285ec63152e838874db52",
+  "bunLockSha256": "f6aff4c2542eebd84bd95860159c8818c2a5eafc8fceeb6551c7215d98e04f12",
+  "preparationSha256": "588f5d5d2b5b9bfe5d44d1c2bec73a565f60bb0e8abae0c5aff93790584e9c45",
+  "sourcePreparation": {
+    "sourceCommit": "d2a095eb800fe80a9bc524579b974796eae51994",
+    "sourceOrigin": "https://github.com/vaultwarden/vw_web_builds.git",
+    "copiedPublicFiles": 5582,
+    "patchSha256": {
+      "branding/web-source.patch": "f5d133c0eff2c94f78e2ad88755ce81b7c9405210cbc6ac03ad409ff37f480b4",
+      "branding/agent-web/source.patch": "2ba8d19bf0427fea4eb941e2f86e5d89e3684c499f3f69a80d47c3a2051c523c"
+    },
+    "componentSha256": {
+      "agent-vault.component.ts": "5c35b0f2bc485a3ce668c32f29097bbd19221ece2e0ef7a03f6db7bd45ef2354",
+      "agent-vault.component.html": "8643b7422d05e5856e71bec47e39837031857e1182f29140ea012cd037aae5cf",
+      "agent-vault.service.ts": "847377abd849ec628c3f9610e2b1e66dc78e4aa53dc6c81a7876a48e73407f87"
+    },
+    "dependenciesInstalled": false,
+    "built": false,
+    "deployed": false,
+    "authenticatedAcceptance": false
+  },
+  "frozenInstall": true,
+  "lifecycleScripts": false,
+  "registryConcurrency": 8,
+  "compiled": true,
+  "packaged": true,
+  "compiledJavaScriptByteIdentical": true,
+  "deployed": false,
+  "renderedAcceptance": false,
+  "authenticatedAcceptance": false,
+  "upstreamLicenses": {
+    "LICENSE.txt": "01fe7fd5a624e6a81557ff4b76c4a7b9a3d89c6a1b58083b74aff7bce843bb41",
+    "LICENSE_BITWARDEN.txt": "955ba776275f22852e50034ca83acff1e9fffea58e7ffde9f5d1b0c6f0bce79a",
+    "LICENSE_GPL.txt": "b98fbb37db5b23bc5cfdcd16793206a5a7120a7b01f75374e5e0888376e4691c"
+  },
+  "artifact": {
+    "files": 257,
+    "bytes": 65396292,
+    "sha256": "251309e3892853034ae7a4fa61af210b2d0ff226373743bfd2c9db25871e8465",
+    "javascriptFiles": 29,
+    "javascriptSha256": "70008425633df1479cda5993fd6f403d4efa1e352a92826982b0ed8f9897efdb",
+    "licenseFiles": 4,
+    "licenseSha256": "69e958c85e18a75de44b352179b17aa4c179639294b649ccca573bf3ccc2d7cd"
+  }
+}
