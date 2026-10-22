@@ -68,6 +68,9 @@ public registration as a side effect of branding. The upstream deployment and
 enrollment documentation still applies.
 
 Read [docs/operations.md](docs/operations.md) for verification and rollback.
+Run `python3 scripts/verify-release.py https://your-vault.example` for public
+asset checks without signing in. For a deployment with the documented closed
+proxy gates, add `--expect-proxy-gates`.
 This repository deliberately contains no runtime environment, private account
 directory, credentials, vault database, exports or backups.
 
