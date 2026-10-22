@@ -1,130 +1,222 @@
 # Agent Vault companion
 
-Prepared for manager review. This service has not been built as a container or
-deployed. It is independent of the existing `osiris-vaultwarden` service. Do not
-edit the Vaultwarden Compose file, image, domains, proxy routes, admin or
-registration gates, volumes or other containers to activate this package.
+Prepared delivery for manager review. Nothing here authorizes activation. This
+service has not been built as a container or deployed. The accepted Mac engine
+and its 253 imported accounts remain authoritative until a separately approved
+cutover. Keep its 506 imported credential fields and 519 total fields intact.
 
-The image uses the full upstream engine, including its web UI. `build.sh`
-fetches only commit `d5836ec3bb2315de38043d742ae5daca11a4944a`, verifies HEAD,
-and uses that commit's Dockerfile and lockfiles. No upstream submodules are
-initialized. Its Node, Go and Alpine base images are digest-pinned upstream.
-The wrapper image has a commit-named local tag, and Compose never pulls it.
-Record the image ID printed by the build. This is an exact-source recipe,
-not a claim of byte-identical output across mutable Alpine package mirrors.
+This package is independent of `osiris-vaultwarden`. Do not edit Vaultwarden's
+Compose file, image, domains, proxy routes, gates, volumes or other containers.
+Do not replace installed Bitwarden, T3, their data or Keychain enrollment.
 
-The inspected upstream entrypoint only execs the binary. It does not implement
-`AGENT_VAULT_MASTER_PASSWORD_FILE`. `launch.sh` instead passes the private file
-as stdin to the actual supported `server --password-stdin` flag. The master
-password is absent from argv, Compose environment and logs. Use a single-line
-file, uid/gid 65532, mode600. Compose local secret mounts retain host ownership.
-The wrapper checks the mounted file before launch. Stdout/stderr logging is
-disabled because upstream can otherwise log verification codes without SMTP.
+## Existing-state restoration
 
-API/UI is published only at `127.0.0.1:19431`; MITM proxy only at
-`127.0.0.1:19432`. Both are on a new, dedicated Compose network. The browser
-login connector uses the management API, not the cookie-stripping proxy.
-No CA is installed on the host. No public HTTPS or reverse-proxy route is added.
-Data lives at `/opt/osiris-agent-vault/data`, separate from every source checkout
-and Vaultwarden data. Never mount the Vaultwarden database into this service.
+`stage-snapshot.py` replaces the old empty-state initializer. There is no fresh
+password generation, enrollment, key generation, provisioning or live snapshot
+capture in this package. The input must be an explicit consistent snapshot
+produced by the parent's recovery procedure. Never pass the live engine root.
+Never run the new-vault provisioner against this imported instance.
 
-## Reviewed activation commands
+The generic snapshot contract matches the Mac runtime's directory layout:
 
-Run these on the VPS from the assembled Vault source checkout only after review.
-Docker Engine with Compose v2, outbound access to GitHub/module/npm/image
-registries, and the exact upstream base-image digests must be available.
-No container build ran here: `docker info` failed because the local Colima
-Docker socket was absent. Neither the VPS nor its running containers were
-mutated during implementation.
+```text
+snapshot/                         mode700, one private owner
+  runtime/                        mode700
+    .agent-vault/                 mode700, complete snapshot of this directory
+      agent-vault.db              mode600, closed self-contained SQLite backup
+      ca/                         mode700
+        ca.crt.pem                mode600, existing CA certificate
+        ca.key.enc                mode600, existing encrypted CA private key
+      ...                         preserve other existing private runtime files
+  keys/                           mode700
+    master-password               mode600, existing nonempty single-line file
+```
+
+Require exactly `runtime` and `keys` at the root, exactly `.agent-vault` under
+`runtime`, and exactly `master-password` under `keys`. All descendants must be
+private directories or regular files with the same owner. Reject symbolic links
+including path ancestors, hard-linked files, special files and SQLite
+`-wal`, `-shm` or `-journal` sidecars. Existing pre-install backups may have a
+different layout. The parent recovery procedure must normalize a NEW private
+snapshot to this contract and include committed WAL records using SQLite's
+backup API. Copying only the live `.db`, or removing sidecars from a live copy,
+is not a consistent snapshot. The stager never repairs or checkpoints its input.
+
+Exclude Mac binaries, LaunchAgents, keys outside this contract, host client
+configuration, browser profiles and account-index files outside `.agent-vault`.
+They are not container inputs. The database preserves its existing encrypted
+credentials, metadata, owner enrollment, sessions, settings and wrapped data
+key. Existing private state inside `.agent-vault` is copied byte-for-byte.
+
+Before creating the destination, the stager performs SQLite `integrity_check`
+and `foreign_key_check`, requires one password-wrapped master record and an
+existing owner, and checks the expected imported pairs and total fields. It
+reads only opaque imported credential key names for pair checks, never field
+values. It reads the private master file only to check single-line formatting
+and copy it. It compares hashes internally without printing them. No password,
+key, ciphertext, account names, emails, token or database rows enter its receipt.
+
+These checks do not prove that the supplied master password unwraps the data
+key or that the CA decrypts. The parent must supply a matched recovery snapshot.
+A later approved container unlock and private owner check remain mandatory.
+
+## Offline staging commands
+
+No transfer is implemented or authorized here. The manager must separately
+approve the snapshot custody, encrypted transfer and Linux activation scope.
+On Linux use a root-owned source checkout and a private, trusted, non-symlink
+snapshot path. Files must belong to root or to the `sudo` caller with mode600,
+and directories must have mode700. Use a new destination whose existing parent
+belongs to the invoking user and is not group/world writable. The destination
+must not exist, even as an empty directory. Do not loosen permissions to make
+a rejected snapshot pass without understanding its custody.
+
+After transfer approval, the following is an OFFLINE Linux root step. It does
+not build, start, contact or stop any engine:
+
+```sh
+sudo -n python3 deploy/agent-vault/stage-snapshot.py \
+  --snapshot /private/approved-recovery-snapshot \
+  --destination /opt/osiris-agent-vault \
+  --import-vault bitwarden-import-20261022 \
+  --expected-accounts 253 \
+  --expected-import-fields 506 \
+  --expected-total-fields 519
+```
+
+Successful output is a bounded JSON receipt. The resulting layout is:
+
+```text
+/opt/osiris-agent-vault/           root:root, mode700
+  data/                           65532:65532, mode700, bind to /data
+    .agent-vault/                 original database and CA, private modes
+    .vault-companion-staged       65532:65532, mode600, completion gate
+  private/                        root:root, mode700
+    master-password               65532:65532, mode600, bind as Compose secret
+  staging-receipt.json            root:root, mode600, aggregate checks only
+```
+
+Compose local bind secrets retain host ownership. Docker mounts the individual
+master file as root, so uid65532 does not need to traverse the host's root-owned
+`private` directory. Data and the master file are explicitly remapped to numeric
+uid/gid65532. Mac uid/gid values are never treated as container identities.
+Rootless Docker or user-namespace remapping needs a separately reviewed host-ID
+mapping. This recipe requires ordinary rootful Docker without remapping.
+
+For a synthetic/local offline check only, add `--ownership current-user` and use
+a disposable destination. That option retains the current uid/gid and writes an
+`offline-check-only` marker. The launch wrapper rejects that marker. For actual
+Linux staging use the default `linux-container`, which requires Linux root.
+Do not manually edit a marker or recursively chown an existing live runtime.
+
+The command reserves its new destination exclusively. Validation failures before
+reservation write nothing. A copy/interruption failure can leave an incomplete
+private destination without a completion gate. Preserve it for review, use a
+NEW destination for a reviewed retry, and do not point Compose at it. Success
+never changes the input snapshot. Keep the snapshot separately for recovery.
+
+## Build and activation prerequisites
+
+Read [the readiness record](../../docs/agent-vault-vps-readiness.md). All of these
+steps require separate manager approval before execution on a VPS.
+
+`build.sh` fetches only upstream commit
+`d5836ec3bb2315de38043d742ae5daca11a4944a`, verifies HEAD and builds its full engine
+and web UI with its Dockerfile and lockfiles. It initializes no submodules and
+never reads the installed Mac binary or live runtime. The wrapper context is
+allowlisted by `.dockerignore` to its Dockerfile, launch script and notices.
+Build on the intended Linux host/architecture, using Docker Engine and Compose
+v2 or newer. No Mac arm64 executable may be copied into a VPS image.
+
+Upstream pins its Node, Go and Alpine base-image digests. Its Dockerfile requires
+`npm ci` and `npm run build` for the pinned frontend and its Go toolchain for the
+engine. This is the upstream toolchain exception to the owned Bun default.
+Do not convert upstream lockfiles. Outbound GitHub, module, npm and image
+registry access is required. The local tag names the exact source revision,
+and Compose never pulls it. Record the printed wrapper image ID and inspect
+its Linux OS/architecture. Alpine package mirrors remain mutable, so the recipe
+does not claim byte-identical builds.
+
+The pinned upstream entrypoint only executes the binary. It does not implement
+`AGENT_VAULT_MASTER_PASSWORD_FILE`. `launch.sh` validates the staged files and
+passes the private file to `server --password-stdin`. It clears copied
+`agent-vault.pid` and `agent-vault.pid.tmp` process markers because Mac PIDs have
+no identity inside the container. The staged copy preserves those bytes until
+launch. It clears competing master-password/database/path/detached overrides
+and fixes HOME to `/data`. No master password is in argv,
+environment or logs. Upstream can log verification codes without SMTP, so
+container logging is disabled. A failed launch therefore needs bounded private
+inspection rather than enabling raw logs.
+
+After offline staging and explicit activation review, the proposed commands are:
 
 ```sh
 sudo -n sh deploy/agent-vault/build.sh
-sudo -n python3 deploy/agent-vault/prepare-state.py
 sudo -n docker compose -f deploy/agent-vault/compose.yaml config --quiet
 sudo -n docker compose -f deploy/agent-vault/compose.yaml up -d --no-deps engine
 sudo -n docker compose -f deploy/agent-vault/compose.yaml ps engine
-curl --fail --silent http://127.0.0.1:19431/health
+curl --fail --silent --output /dev/null http://127.0.0.1:19431/health
 ```
 
-`prepare-state.py` generates a random master password internally. It prints
-only a bounded receipt, refuses nonempty state, and must never be rerun for a
-restart. Retain the private master file with the encrypted database in a
-separately approved backup procedure. No existing trial data is migrated by
-these commands. A fresh engine has no imported passwords.
+API/UI binds only `127.0.0.1:19431`, proxy only `127.0.0.1:19432`, on a dedicated
+Compose network. Missing host data paths fail instead of being auto-created.
+The healthcheck uses explicit IPv4 loopback to match the listener. No public
+route or host CA trust is added. Keep the existing Mac API/proxy ports and
+Tailscale mapping unchanged. A manager-approved API base-URL/tunnel review is
+still needed because existing metadata and instance settings are preserved.
 
-Before calling the companion usable, the manager must enroll its first owner
-through the private UI, provision the target vault and decide how to import
-the approved snapshot. First-owner enrollment is separate from the master
-encryption password. Expose the new service only through a private tunnel:
+A later private management tunnel can use:
 
 ```sh
 ssh -N -L 19431:127.0.0.1:19431 hostinger-osiris
 ```
 
-Use the T3 private-preview rules for any browser handoff. The SSH tunnel is a
-management transport, not a public preview deliverable. Remote API access must
-use validated HTTPS or this documented loopback tunnel. Never disable TLS
-validation or point the client at remote plain HTTP.
+A tunnel is not a private preview handoff. Read the T3 private-preview rules
+before browser delivery. Remote API access requires validated HTTPS or this
+loopback tunnel. Do not disable TLS verification or use remote plain HTTP.
 
-## Host capability and new vault
+## Acceptance and trusted-host capability
 
-Create a mode700 canonical private directory outside all checkouts and place
-`engine.json` plus `member-token` inside with mode600. Start from
-`engine.example.json`. The host token must come from a normal authenticated
-member/admin account with access to the chosen vault. On a new companion,
-initial provisioning requires its owner's authenticated capability.
+Health proves process readiness only. After approved activation, the manager
+must privately verify existing-owner sign-in, database inventory 253/506/519,
+existing CA identity and a known imported credential through a bounded trusted
+check. No new enrollment, import or password/key change should occur. Do not
+run actual website-login checks as part of this delivery package. Do not stop
+or remove the accepted Mac engine until cutover and rollback are approved.
 
-`POST /v1/sessions` in the pinned release mints **proxy only**, even for an
-owner. It cannot mint a member/admin token. The manager must privately save a
-normal account session for the trusted host. Never supply that session to the
-agent/MCP, expose it in command arguments, or print a login API response.
+Host configuration and member capability files stay in a canonical mode700
+private directory outside checkouts, with files mode600. Start from
+`engine.example.json` and use the preserved imported vault. A normal existing
+member/admin capability with access to that vault is required. Pinned upstream
+`POST /v1/sessions` mints proxy-only capabilities and cannot mint a member/admin
+capability. Never expose the authenticated owner/member response to an agent.
+A separate parent-owned refresh procedure must privately establish the trusted
+host capability and target address after cutover review.
 
-For a NEW EMPTY companion vault only, run on the trusted host:
+The owned status client uses Bun:
 
 ```sh
-node integrations/agent-vault/engine/provision.mjs \
-  /private/path/integration-v1/engine.json \
-  /private/path/integration-v1/proxy-token
-node integrations/agent-vault/engine/status.mjs \
+bun integrations/agent-vault/engine/status.mjs \
   /private/path/integration-v1/engine.json
 ```
 
-The provisioner refuses an existing vault and an existing proxy file. It closes
-the new companion's registrations to invite-only, creates the specified vault,
-sets and reads back `unmatched_host_policy=deny`, confirms there are no service
-rules, and saves a separate one-hour proxy capability privately. It neither
-imports credentials nor adds proxy injection rules. It never modifies
-Vaultwarden. If provisioning fails midway, inspect the new companion privately;
-the empty output file and partial vault deliberately prevent a blind retry.
+It returns only `ready` or `engine_unavailable`. It proves neither imported
+credential equality nor browser login. Do not run the new-vault provisioner.
 
-The existing real-import runtime is a different activation path. Point the host
-client at its approved private config and use its existing imported vault.
-**Do not run this provisioner, prepare-state, build/start commands or migrations
-against the live trial.** No live import capability was read here.
+## Status and rollback after a separately approved activation
 
-## Status, restart, stop and rollback
-
-These commands affect this Compose project only:
+These commands affect only the companion Compose project:
 
 ```sh
 sudo -n docker compose -f deploy/agent-vault/compose.yaml ps engine
 sudo -n docker inspect --format '{{.State.Health.Status}}' osiris-agent-vault-engine-1
 sudo -n docker compose -f deploy/agent-vault/compose.yaml restart engine
 sudo -n docker compose -f deploy/agent-vault/compose.yaml stop engine
-```
-
-`/health` and container health prove process readiness only. The Node status
-command also checks the configured vault and a member-gated endpoint, returning
-only `ready` or `engine_unavailable`. Neither proves an imported account or
-browser login. Restart preserves the data bind and private master file.
-
-For this first additive deployment, rollback is removal of only the companion:
-
-```sh
 sudo -n docker compose -f deploy/agent-vault/compose.yaml down
 ```
 
-Do not pass `--volumes`, prune Docker, remove `/opt/osiris-agent-vault`, restore
-Vaultwarden, or delete its database. Preserve the companion's private state for
-review. Future image upgrades need a separate reviewed database/schema rollback;
-replacing an image alone is not a safe downgrade guarantee.
+Restart preserves the data bind and master file. Stop/down are the additive
+companion rollback; preserve its staged state and return the trusted host to
+its previously accepted Mac configuration under reviewed scope. Never use
+`--volumes`, Docker prune, remove `/opt/osiris-agent-vault`, restore Vaultwarden,
+or delete its database. Future upgrades need their own schema rollback plan.
