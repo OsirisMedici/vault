@@ -149,7 +149,8 @@ export async function createBridge({ config: input, fetchImpl = globalThis.fetch
     }
 
     async function body(request, keys) {
-      if (request.headers.get('content-type')?.toLowerCase() !== 'application/json' ||
+      // Vault's supported ApiService sends this standard UTF-8 charset suffix.
+      if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/i.test(request.headers.get('content-type') ?? '') ||
           request.headers.has('content-encoding')) error(400, 'invalid_request');
       let value;
       try { value = await deadline(signal => boundedJson(request, limits.bodyBytes, signal)); }
