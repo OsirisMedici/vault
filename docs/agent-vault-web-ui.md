@@ -9,6 +9,10 @@ chat message, sync Bitwarden items, or expose passwords.
 
 ## Source preparation
 
+For a dependency-ready Bun candidate and the daily build command, use
+[Vault web builds with Bun](agent-vault-web-bun.md). That wrapper reuses this
+source preparer and adds the pinned web-only tooling transformation.
+
 Run from this repository, using a clean initialized public web source. The
 parent may supply its existing checkout with `--source`.
 
