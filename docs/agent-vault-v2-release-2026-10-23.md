@@ -47,8 +47,9 @@ without submitting it. This proves an automation input path, not human private
 entry or authenticated acceptance. The owner was asked to sign in privately.
 Subsequent status showed #/2fa and a separate unclaimed recovery-route tab;
 the release owner stopped authentication actions and did not inspect or operate
-MFA/recovery. No authenticated session, recovery action, password rejection or
-completed private unlock is claimed. Saved login/input evidence remains in T3's
+MFA/recovery. At the initial blocked handoff no authenticated session, recovery
+action, password rejection or completed private unlock was claimed.
+Saved login/input evidence remains in T3's
 browser artifacts outside source. No earlier thread's tab was operated.
 
 Presence-only runtime diagnostics found ~/.config/osiris-agent-vault and its
@@ -72,8 +73,9 @@ A focused available-tool search found no callable private runtime provisioning
 or transfer capability. The existing chat-session/chat-relay source is present,
 but cannot start its credential runtime without private configuration/access.
 
-External prerequisites are owner-completed normal MFA/unlock for cases 8–9,
-and a supported authenticated private transfer/provisioning route for case 10.
+The owner subsequently completed private authentication and reported done.
+Cases 8–9 were exercised as recorded below. The remaining external prerequisite
+is a supported authenticated private transfer/provisioning route for case 10.
 The latter must supply only the existing approved engine configuration/member
 capability, import metadata manifest and private bridge worker configuration/
 capability, adapting host paths privately and preserving owner-only modes.
@@ -84,31 +86,80 @@ create grants or substitute a generic bearer/secretRef for browser transport.
 Standalone ACP remains optional: the approved guarded chat relay is sufficient
 once its private runtime prerequisites exist.
 
-Acceptance remains seven of ten cases passed from the original release record.
-Cases 8, 9 and 10 are pending, with no real GoDial request/login attempted here
-and no clipboard credential fill performed. These diagnostics are takeover
-prerequisite checks, not additional aggregate allocations. VPS image/container,
+Acceptance is now nine of ten allocated cases passed: seven inherited from the
+original release record plus the real Raven checks for cases 8 and 9 below.
+Case 10 remains blocked. The one new GoDial queue/cancel lifecycle check did
+not invoke the credential executor or attempt a website login. No clipboard
+credential fill occurred. These checks reuse the existing allocations, with
+no broad suite or new identity. VPS image/container,
 inventory and recovery claims below were not independently rechecked from Raven.
 The existing production URL remains
 https://vault.scaleadvertisement.com/#/agent-vault; no replacement server or
-preview was started. This update changes evidence/ownership only.
+preview was started. Source changes remain evidence/ownership only; the one
+authenticated request/cancellation is the bounded acceptance mutation below.
 
-After the prerequisites are resolved, resume in this same thread and tab:
+### Authenticated Raven acceptance follow-up
 
-1. Have the owner finish normal private sign-in/MFA/unlock. Open Agent access;
-   exercise local search/provider filters, explicit selection, desktop and
-   narrow rendering. Verify lock/logout clears metadata and polling (case 8).
-2. Inspect bounded newest-first read-only history (maximum 25), checking that
-   opening history executes no work. Exercise the permitted explicit request
-   lifecycle and verify displayed outcomes against the same request (case 9).
-3. Select only GoDial businessabhish@gmail.com, request sign-in once and bind
-   its opaque request ID to a fresh owned GoDial tab in this exact thread.
-   Run the guarded trusted chat executor, stop for owner verification if needed,
-   verify the exact website identity and matching UI signed_in with
-   identityVerified true, then verify clipboard cleanup (case 10).
+On the owner's done response, this exact owned tab was on #/agent-vault.
+The rendered page showed the existing owner, 253 imported accounts and two
+supported choices. Authenticated GET accounts, status and requests all returned
+200. No token/storage inspection or programmatic private unlock was used.
 
-Capture and inspect saved real UI evidence for the tested states. A queued
-request, dashboard URL or historical login never satisfies these pending cases.
+Case 8 passed the bounded discovery/render/session check. An unmatched local
+search showed zero choices and its explanatory message; an uppercase exact
+target username search showed one. Combining that search with ClickUp showed
+zero, Clear filters restored two, and GoDial alone showed one. The imported
+account remained explicitly unselected with a disabled Request sign-in control
+until the target GoDial option was clicked. Selection then showed exact username
+businessabhish@gmail.com and origin https://app.godial.cc, enabling the control.
+Filtering/selection generated no additional Agent access API calls.
+
+Actual DOM viewport measurements were 1440 x 1000 and 390 x 844, despite the
+resize receipt's stale 1280 x 800 viewport field. Saved screenshots and the
+accessibility tree reflected the requested widths. At 390 pixels document width
+was 390; main client/scroll widths both 384 and form client/scroll widths both
+326. Controls, account details, request outcome and history wrapped/readably
+scrolled without horizontal overflow. The selected dropdown label ellipsizes;
+the exact username remains readable in the details below.
+
+A deliberate full location.reload() returned #/lock?promptBiometric=true.
+The locked screen replaced the account selector, history and Agent access
+component; none remained in the new document. Subsequent bounded checks showed
+zero Agent access resource requests since reload. This verifies reload-induced
+lock/session clearing, not a separate in-place lock/logout race or account-switch
+test. No automatic unlock or private password entry was performed by the agent.
+
+Case 9 passed one real queue/cancel lifecycle and bounded read-only history.
+Before mutation, Refresh history issued GET /api/agent-vault/requests 200 and
+retained exactly the two existing historical outcomes without executing work.
+The historical verified login is explicitly not new v2 login acceptance.
+One click of Request sign-in created request
+bfef78c8-ef66-4c04-913e-35d00bd1dd5b (POST 201), for the exact selected GoDial
+account. Its panel/history accurately said Queued — not verified. Polling used
+GET on that same request ID (200). One Cancel queued request click returned
+POST /requests/bfef78c8-ef66-4c04-913e-35d00bd1dd5b/cancel 200. The panel said
+Cancelled and removed the cancel control. A fresh history GET 200 returned the
+same request as Cancelled at the top, followed by the two older outcomes,
+with the same ID/expiry/provider/username. Three rows were observed within the
+25-row bound; no 25-record live boundary population was generated. This fresh
+GET establishes persisted cancellation before the subsequent reload locked the
+Vault. No working/signed_in completion was manufactured or claimed.
+
+Real saved evidence was inspected in T3's browser artifacts outside source:
+
+- Desktop discovery: browser-screenshot-vault-scaleadvertisement-com-mvk0800d-3369b67b.png.
+- Desktop explicit selection: browser-screenshot-vault-scaleadvertisement-com-mvk08wj0-a90046ce.png.
+- Desktop cancelled outcome/history: browser-screenshot-vault-scaleadvertisement-com-mvk09aae-6ea90aa0.png.
+- Narrow discovery: browser-screenshot-vault-scaleadvertisement-com-mvk09km5-e6b513f7.png.
+- Narrow details/cancelled outcome: browser-screenshot-vault-scaleadvertisement-com-mvk09z82-7b6cf71b.png.
+
+After private executor access is provisioned, resume only case 10 in this same
+thread. Select only GoDial businessabhish@gmail.com in a privately unlocked
+Vault, create its new request and bind that opaque ID to a fresh owned GoDial
+tab. Use the guarded chat executor, stop for owner verification when necessary,
+require the exact website identity and matching UI signed_in with
+identityVerified true, then verify clipboard cleanup. The cancelled request
+cannot be reused. A queue, dashboard URL or historical login never passes case 10.
 
 ## Source assembly
 
@@ -213,22 +264,23 @@ bridge config, manifest and worker capability remained unchanged. Counts stayed
 253 accounts, 506 imported fields and 519 total fields. Config v1 still permits
 only the existing owner. No team grant or live sync was activated.
 
-## Acceptance state and browser blocker
+## Original Osiris acceptance state and browser blocker
 
-Seven of ten allocated cases passed: the five assembled worker fixture cases,
+At the Osiris handoff, seven of ten allocated cases passed: the five assembled worker fixture cases,
 manager case 6 for recovery/deployment/preserved inventory and case 7 for public
-gates. Cases 8, 9 and 10 remain pending. No additional cases were allocated.
+gates. Cases 8, 9 and 10 were pending there. The current Raven results above
+supersede that pending state for cases 8 and 9. No additional cases were allocated.
 
 Public checks after activation passed: /alive 200; unauthenticated accounts,
 requests/history and status 401; public worker claim 404; /admin 404; empty
 registration 403. /api/config retains the same HTTPS Vault API/identity/
 notification destinations. Public index bytes match the packaged hash above.
 
-Authenticated UI discovery/rendering, authenticated history and the new real
-GoDial login have NOT passed on this release. The historical d6070d4 acceptance
+At that handoff, authenticated UI discovery/rendering, authenticated history
+and the new real GoDial login had NOT passed. The historical d6070d4 acceptance
 predates v2 and must not be presented as its regression proof.
 
-This thread is mcp:cf5edef4-c277-4687-9482-2a692d405a16. Fresh server browser
+The original Osiris thread is mcp:cf5edef4-c277-4687-9482-2a692d405a16. Fresh server browser
 tabs used the current osiris profile; old native UI showed Removed profile.
 Repeated snapshot, resize, typing and navigation calls timed out, while some
 DOM evaluation/status calls worked. The visible preview initially stayed at
