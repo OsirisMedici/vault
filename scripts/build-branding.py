@@ -32,36 +32,36 @@ def build(source, output):
         raise ValueError('Pinned main bundle not found')
     main_path = Path(main_match.group(1))
     main = (source / main_path).read_text()
-    main = replace_exact(main, 'Vaultwarden Web', 'Keyflow', 3, 'display-name strings')
-    main = replace_exact(main, '"alt","Vaultwarden"', '"alt","Keyflow"', 1, 'loading-logo label')
-    main = replace_exact(main, '/messages.json?cache=5dwehg', '/messages.json?cache=5dwehg-keyflow-0.1.0', 1, 'versioned logo translations')
-    branded_main_path = main_path.with_name('main.keyflow.' + hashlib.sha256(main.encode()).hexdigest()[:20] + '.js')
+    main = replace_exact(main, 'Vaultwarden Web', 'Vault', 3, 'display-name strings')
+    main = replace_exact(main, '"alt","Vaultwarden"', '"alt","Vault"', 1, 'loading-logo label')
+    main = replace_exact(main, '/messages.json?cache=5dwehg', '/messages.json?cache=5dwehg-vault-0.1.1', 1, 'versioned logo translations')
+    branded_main_path = main_path.with_name('main.vault.' + hashlib.sha256(main.encode()).hexdigest()[:20] + '.js')
     index = replace_exact(index, str(main_path), str(branded_main_path), 1, 'versioned main bundle')
-    index = replace_exact(index, '<title page-title>Vaultwarden Web</title>', '<title page-title>Keyflow</title>', 1, 'index title')
-    index = replace_exact(index, 'alt="Vaultwarden"', 'alt="Keyflow"', 1, 'index loading label')
+    index = replace_exact(index, '<title page-title>Vaultwarden Web</title>', '<title page-title>Vault</title>', 1, 'index title')
+    index = replace_exact(index, 'alt="Vaultwarden"', 'alt="Vault"', 1, 'index loading label')
     index = replace_exact(index, 'content="#175DDC"', 'content="#171719"', 1, 'browser theme color')
     # Load theme in head as well as upstream's body hook, avoiding an unthemed flash.
     index = index.replace('</head>', '<link rel="stylesheet" href="css/vaultwarden.css"/></head>')
     index = index.replace('<meta name="viewport" content="width=1010"/>', '<meta name="viewport" content="width=device-width,initial-scale=1"/>')
     index = re.sub(r'<link rel="(?:apple-touch-icon|icon|mask-icon)"[^>]+/>', '', index)
-    index = index.replace('</head>', '<link rel="icon" type="image/svg+xml" href="images/keyflow-icon.svg"/></head>')
-    index = index.replace('href="css/vaultwarden.css"', 'href="css/vaultwarden.css?keyflow=0.1.0"')
+    index = index.replace('</head>', '<link rel="icon" type="image/svg+xml" href="images/vault-icon.svg"/></head>')
+    index = index.replace('href="css/vaultwarden.css"', 'href="css/vaultwarden.css?vault=0.1.1"')
     files = {'index.html': index, str(branded_main_path): main}
     # Preserve all translated product copy and disclaimers; rename only the logo label.
     for locale in sorted((source / 'locales').glob('*/messages.json')):
         raw = locale.read_text()
         messages = json.loads(raw)
         if 'appLogoLabel' in messages:
-            messages['appLogoLabel']['message'] = 'Keyflow logo'
+            messages['appLogoLabel']['message'] = 'Vault logo'
             files[str(locale.relative_to(source))] = json.dumps(messages, ensure_ascii=False, separators=(',', ':'))
     for name, content in files.items():
         dest = output / name
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(content)
     (output / 'images').mkdir(parents=True, exist_ok=True)
-    for name in ['logo.svg', 'logo-white.svg', 'keyflow-wordmark.svg']:
+    for name in ['logo.svg', 'logo-white.svg', 'vault-wordmark.svg']:
         shutil.copyfile(ROOT / 'branding/wordmark.svg', output / 'images' / name)
-    for name in ['icon-white.svg', 'icon.svg', 'keyflow-icon.svg', 'safari-pinned-tab.svg']:
+    for name in ['icon-white.svg', 'icon.svg', 'vault-icon.svg', 'safari-pinned-tab.svg']:
         shutil.copyfile(ROOT / 'branding/icon.svg', output / 'images' / name)
     for manifest in source.glob('*.json'):
         try:
@@ -69,10 +69,10 @@ def build(source, output):
         except (ValueError, UnicodeDecodeError):
             continue
         if 'icons' in data and 'name' in data:
-            data.update(name='Keyflow', short_name='Keyflow', theme_color='#171719', background_color='#171719')
-            data['icons'] = [{'src': 'images/keyflow-icon.svg', 'sizes': 'any', 'type': 'image/svg+xml', 'purpose': 'any'}]
-            (output / 'keyflow.webmanifest').write_text(json.dumps(data, separators=(',', ':')))
-            index = index.replace(manifest.name, 'keyflow.webmanifest')
+            data.update(name='Vault', short_name='Vault', theme_color='#171719', background_color='#171719')
+            data['icons'] = [{'src': 'images/vault-icon.svg', 'sizes': 'any', 'type': 'image/svg+xml', 'purpose': 'any'}]
+            (output / 'vault.webmanifest').write_text(json.dumps(data, separators=(',', ':')))
+            index = index.replace(manifest.name, 'vault.webmanifest')
     (output / 'index.html').write_text(index)
     report = {'webVersion': '2026.7.0', 'displayNameReplacements': 3,
               'inputMainSha256': hashlib.sha256((source / main_path).read_bytes()).hexdigest(),

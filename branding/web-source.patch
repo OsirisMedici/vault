@@ -5,7 +5,7 @@
      <meta name="theme-color" content="#175DDC" />
  
 -    <title page-title>Vaultwarden Web</title>
-+    <title page-title>Keyflow</title>
++    <title page-title>Vault</title>
  
      <link rel="apple-touch-icon" sizes="180x180" href="images/icons/apple-touch-icon.png" />
      <link rel="icon" type="image/png" sizes="32x32" href="images/icons/favicon-32x32.png" />
@@ -14,7 +14,7 @@
        <div class="tw-flex tw-flex-col tw-min-h-[100vh]">
          <div class="tw-pt-5 tw-px-5 tw-fixed">
 -          <img class="new-logo-themed !tw-w-[200px]" alt="Vaultwarden" />
-+          <img class="new-logo-themed !tw-w-[200px]" alt="Keyflow" />
++          <img class="new-logo-themed !tw-w-[200px]" alt="Vault" />
          </div>
          <div class="spinner-container tw-justify-center">
            <!-- eslint-disable-next-line @bitwarden/components/no-bwi-class-usage -->
@@ -25,7 +25,7 @@
          this.currentUrl = event.url;
  
 -        let title = "Vaultwarden Web";
-+        let title = "Keyflow";
++        let title = "Vault";
  
          if (this.currentUrl.includes("/sm/")) {
            title = i18nService.t("bitSecretsManager");
@@ -36,7 +36,7 @@
    <environment-selector></environment-selector>
  
 -  <div bitTypography="body2">Vaultwarden Web</div>
-+  <div bitTypography="body2">Keyflow</div>
++  <div bitTypography="body2">Vault</div>
    <div bitTypography="body2">{{ version }}</div>
    <br />
    <div bitTypography="helper" id="vw-disclaimer">
@@ -47,7 +47,7 @@
    <div class="tw-flex tw-flex-col tw-min-h-[100vh]">
      <div class="tw-pt-5 tw-px-5 tw-fixed">
 -      <img class="new-logo-themed !tw-w-[200px]" alt="Vaultwarden" />
-+      <img class="new-logo-themed !tw-w-[200px]" alt="Keyflow" />
++      <img class="new-logo-themed !tw-w-[200px]" alt="Vault" />
      </div>
      <div class="spinner-container tw-justify-center">
        <i
@@ -58,7 +58,7 @@
            formattedLocale +
            "/messages.json?cache=" +
 -          process.env.CACHE_TAG;
-+          process.env.CACHE_TAG + "-keyflow-0.1.0";
++          process.env.CACHE_TAG + "-vault-0.1.1";
          const localesResult = await fetch(filePath);
          const locales = await localesResult.json();
          return locales;
@@ -69,7 +69,7 @@
    },
    "appLogoLabel": {
 -    "message": "Bitwarden logo"
-+    "message": "Keyflow logo"
++    "message": "Vault logo"
    },
    "criticalApplications": {
      "message": "Critical applications"

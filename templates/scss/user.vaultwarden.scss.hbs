@@ -1,6 +1,6 @@
-/* Keyflow charcoal theme. GPL-3.0-only.
+/* Vault charcoal theme. GPL-3.0-only.
  * Dark semantic mappings derived from the pinned GPLv3 Bitwarden-compatible client.
- * Applied to both upstream theme choices so the Keyflow web release is always charcoal.
+ * Applied to both upstream theme choices so the Vault web release is always charcoal.
  * No selectors here implement authorization or hide authentication controls.
  */
 :root, :root.theme_light, :root.theme_dark {
@@ -309,7 +309,7 @@ input, textarea, select { color-scheme: dark; }
 ::selection { background: #555560; color: #ffffff; }
 
 /* Use upstream logo locations. Collapsed navigation keeps its existing geometry. */
-app-root img.new-logo-themed { content: url('../images/keyflow-wordmark.svg') !important; }
+app-root img.new-logo-themed { content: url('../images/vault-wordmark.svg') !important; }
 bit-landing-header bit-svg > svg,
 bit-nav-logo bit-svg > svg { display: none !important; }
 bit-landing-header bit-svg::before,
@@ -318,11 +318,11 @@ bit-nav-logo bit-svg::before {
   display: block;
   width: 100%;
   height: 42px;
-  background: url('../images/keyflow-wordmark.svg') no-repeat left center;
+  background: url('../images/vault-wordmark.svg') no-repeat left center;
   background-size: contain;
 }
 bit-nav-logo bit-nav-item a::before {
-  background-image: url('../images/keyflow-icon.svg') !important;
+  background-image: url('../images/vault-icon.svg') !important;
 }
 #bit-side-nav[style*='4.5rem'] bit-nav-logo bit-svg::before { display: none; }
 

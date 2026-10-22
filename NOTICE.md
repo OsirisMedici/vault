@@ -1,10 +1,10 @@
 # Attribution and licensing
 
-Keyflow is an independent open-source project by Osiris Medici. It adds web
+Vault is an independent open-source project by Osiris Medici. It adds web
 branding and a charcoal theme to Vaultwarden. It is not affiliated with
 Bitwarden, Inc. or endorsed by the Vaultwarden maintainers.
 
-Keyflow's original files are licensed under GPL-3.0-only. See LICENSE.
+Vault's original files are licensed under GPL-3.0-only. See LICENSE.
 The pinned upstream repositories retain their original licenses and notices:
 
 - `upstream/server`: Vaultwarden 1.37.4, AGPLv3. Its server binary is unmodified.
@@ -21,7 +21,7 @@ branding assets, index metadata and a translation-cache suffix. It adds CSS thro
 `scss/user.vaultwarden.scss.hbs` hook. Existing upstream disclaimers remain.
 
 The GPL and AGPL do not grant trademark rights. Bitwarden and Vaultwarden are
-used here to identify upstream projects. Keyflow naming/trademark availability
+used here to identify upstream projects. Vault naming/trademark availability
 has not been cleared. Do not imply upstream affiliation.
 
 Source:

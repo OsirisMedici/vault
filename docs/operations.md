@@ -31,7 +31,7 @@ warnings, error states and authorization remain. CSS is never an access policy.
 - Confirm HTTPS and `/alive`, and that `/api/config` retains the intended API,
   identity and notification destinations.
 - Confirm `/admin` remains blocked and the registration gate stays closed.
-- Confirm Keyflow title, wordmark, favicon, charcoal surfaces, readable form
+- Confirm Vault title, wordmark, favicon, charcoal surfaces, readable form
   labels, focus indicators and status colors. Test a desktop and phone viewport.
 - Exercise Remember email and empty/invalid-email validation without using a
   real password. Check relevant console errors and failed asset requests.

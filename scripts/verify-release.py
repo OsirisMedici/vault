@@ -19,19 +19,19 @@ def check(base, proxy_gates=False):
             return body.decode()
 
     index = get('/')
-    assert '<title page-title>Keyflow</title>' in index, 'Keyflow title missing'
-    main = re.search(r'src="(app/main\.keyflow\.[a-f0-9]+\.js)"', index)
-    assert main, 'Versioned Keyflow main bundle missing'
+    assert '<title page-title>Vault</title>' in index, 'Vault title missing'
+    main = re.search(r'src="(app/main\.vault\.[a-f0-9]+\.js)"', index)
+    assert main, 'Versioned Vault main bundle missing'
     get('/' + main.group(1))
     get('/alive')
-    get('/images/keyflow-wordmark.svg')
-    get('/images/keyflow-icon.svg')
-    manifest = json.loads(get('/keyflow.webmanifest'))
-    assert manifest['name'] == 'Keyflow'
+    get('/images/vault-wordmark.svg')
+    get('/images/vault-icon.svg')
+    manifest = json.loads(get('/vault.webmanifest'))
+    assert manifest['name'] == 'Vault'
     css = get('/css/vaultwarden.css')
     # grass preserves whitespace inside custom properties even in compressed mode.
     assert re.search(r'--color-background-alt\s*:\s*23\s+23\s+25\s*[;}]', css), 'Charcoal CSS missing'
-    assert 'keyflow-wordmark.svg' in css, 'Logo CSS missing'
+    assert 'vault-wordmark.svg' in css, 'Logo CSS missing'
     config = json.loads(get('/api/config'))
     expected_origin = urllib.parse.urlsplit(base)
     actual_origin = urllib.parse.urlsplit(config['environment']['api'])
