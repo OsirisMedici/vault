@@ -5,9 +5,10 @@ compatible web client. Vault gives the web app a charcoal theme and its own
 name while retaining the upstream password-manager implementation.
 
 The deployed web release changes appearance and branding. This repository is
-also the durable home for further Vault app work. A pinned macOS desktop source
-candidate is documented in [docs/desktop.md](docs/desktop.md); it has not been
-compiled, signed or accepted as a replacement app. Team sharing configuration,
+also the durable home for further Vault app work. An arm64 macOS desktop candidate
+has compiled, packaged and launched locally. Build instructions and its ad-hoc
+signing limits are in [docs/desktop.md](docs/desktop.md). It has not passed account,
+sync or Touch ID acceptance and is not an accepted replacement app. Team sharing configuration,
 agent permissions and protected browser credential filling are separate work.
 Official Bitwarden desktop, mobile and extension clients retain their branding
 and can keep using the same server.
@@ -29,6 +30,8 @@ git submodule update --init --depth 1
 - `scripts/build-branding.py` creates the release's display-only asset overlay.
 - `scripts/prepare-desktop.py` applies Vault desktop changes to an ignored copy,
   keeping the upstream checkout and the installed official app intact.
+- `scripts/build-desktop-local.sh` provisions local Node 24 and builds a separate
+  macOS arm64 Vault.app candidate without installing or publishing it.
 
 Submodules preserve the upstream licenses and make future security updates
 reviewable. They are source checkouts, not a claim that every file has the same

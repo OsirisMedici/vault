@@ -22,6 +22,45 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def desktop_theme_css():
+    # Reuse the selected web palette. Desktop logos are real SVG assets, so omit
+    # the web-only image URL replacements and retain the shared surface rules.
+    theme = (ROOT / 'templates/scss/user.vaultwarden.scss.hbs').read_text()
+    palette, rest = theme.split('/* Use upstream logo locations.', 1)
+    surfaces = '/* Preserve information architecture' + rest.split(
+        '/* Preserve information architecture', 1)[1]
+    return (palette + surfaces
+            + '\n/* Match the native window and legacy desktop body to the same charcoal. */\n'
+            + ':root body { background-color: #171719; color: #ededee; }\n')
+
+
+def brand_product_labels(output):
+    desktop = output / 'apps/desktop'
+    (desktop / 'src/scss/vault.css').write_text(desktop_theme_css())
+    # Only these product-label keys change; preserve security/help/legal copy.
+    for locale in sorted((desktop / 'src/locales').glob('*/messages.json')):
+        data = json.loads(locale.read_text())
+        for key, name in [('bitwarden', 'Vault'), ('bitwardenBeta', 'Vault Preview')]:
+            if key in data:
+                data[key]['message'] = name
+        for key in ['appLogoLabel', 'newToBitwarden', 'loginPageEmailEntryScreenTitle']:
+            if key in data:
+                data[key]['message'] = data[key]['message'].replace('Bitwarden', 'Vault')
+        locale.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+
+    wordmark = (ROOT / 'branding/wordmark.svg').read_text().strip()
+    svg_dir = output / 'libs/assets/src/svg/svgs'
+    (svg_dir / 'password-manager.ts').write_text(
+        'import { svg } from "../svg";\n\n'
+        'const PasswordManagerLogo = svg`\n' + wordmark + '\n`;\n\n'
+        'export default PasswordManagerLogo;\n')
+    for filename, symbol in [('bitwarden-logo.icon.ts', 'BitwardenLogo'),
+                             ('bitwarden-logo-beta.icon.ts', 'BitwardenLogoBeta')]:
+        (svg_dir / filename).write_text(
+            'import { svg } from "../svg";\n\n'
+            f'export const {symbol} = svg`\n' + wordmark + '\n`;\n')
+
+
 def prepare(output):
     output = output.resolve()
     if not output.is_relative_to((ROOT / '.cache').resolve()):
@@ -53,20 +92,7 @@ def prepare(output):
     ]:
         shutil.copyfile(BRANDING / source, desktop / target)
 
-    # Change product-label keys only. Preserve warnings, translated copy and attribution.
-    for locale in sorted((desktop / 'src/locales').glob('*/messages.json')):
-        data = json.loads(locale.read_text())
-        for key, name in [('bitwarden', 'Vault'), ('bitwardenBeta', 'Vault Preview')]:
-            if key in data:
-                data[key]['message'] = name
-        locale.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
-
-    # Reuse the original Vault vector mark in the desktop navigation.
-    wordmark = (ROOT / 'branding/wordmark.svg').read_text().strip()
-    (output / 'libs/assets/src/svg/svgs/password-manager.ts').write_text(
-        'import { svg } from "../svg";\n\n'
-        'const PasswordManagerLogo = svg`\n' + wordmark + '\n`;\n\n'
-        'export default PasswordManagerLogo;\n')
+    brand_product_labels(output)
 
     notices = desktop / 'resources/vault-notices'
     notices.mkdir()
@@ -84,6 +110,7 @@ def prepare(output):
         'sourceCommit': pin['commit'],
         'sourcePatchSha256': digest(BRANDING / 'source.patch'),
         'packagingConfigSha256': digest(BRANDING / 'electron-builder.vault.json'),
+        'charcoalThemeSha256': digest(ROOT / 'templates/scss/user.vaultwarden.scss.hbs'),
         'biometricServiceSha256': digest(desktop / 'src/key-management/biometrics/os-biometrics-mac.service.ts'),
         'keychainImplementationSha256': digest(desktop / 'desktop_native/core/src/password/macos.rs'),
         'installed': False,

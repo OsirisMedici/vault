@@ -43,7 +43,12 @@ not a second Vault project. `upstream.lock.json` records all three pins.
 
 This is a reproducible source candidate for macOS arm64. Included:
 
-- Vault product-label translations, page title, navigation wordmark and key icon.
+- Vault product-label translations, login/page titles, landing/navigation wordmarks
+  and key icon. Security, help and license copy retain upstream attribution.
+- The same selected charcoal palette as the Vault web app, generated from
+  `templates/scss/user.vaultwarden.scss.hbs` after desktop Tailwind. Web-only logo
+  URL replacements are omitted because native SVG assets are already branded.
+  The native window background is also charcoal.
 - A proposed bundle ID of `com.osirismedici.vault`, a Vault package name and a
   fixed `~/Library/Application Support/Vault` profile. The name and bundle ID
   have not been cleared or registered with Apple.
@@ -51,6 +56,10 @@ This is a reproducible source candidate for macOS arm64. Included:
 - Disabled upstream auto-updates, official browser manifest/socket operations,
   proxy launch and shared `bitwarden://` registration. Removal operations are
   disabled too, so Vault cannot delete the official client's manifests.
+- Disabled SSH agent, system AutoFill and autotype initialization for acceptance.
+- A self-hosted default of `https://vault.scaleadvertisement.com` only when the
+  profile has no saved environment. Saved server choices and the custom-server
+  selector continue to use the upstream environment service and validation.
 - A separate unsigned local packaging configuration that retains upstream
   Electron security fuses, contains source notices, and excludes upstream
   signing/notarization hooks, provisioning profiles and extensions.
@@ -58,8 +67,8 @@ This is a reproducible source candidate for macOS arm64. Included:
 Excluded from this candidate: a release/update service, browser-extension
 pairing, URL/SSO callbacks, Safari/macOS AutoFill extension distribution,
 cross-platform packaging, and CLI or agent fingerprint-only unlock. Other
-upstream integrations, including SSH agent and autotype, are unverified and
-must stay disabled during acceptance. Some secondary copy and support links
+upstream integrations remain unverified and must stay disabled during acceptance.
+Some secondary copy and support links
 still identify upstream. This is not a full visual redesign.
 
 The candidate does not change server APIs, key derivation, encryption, biometric
@@ -161,9 +170,28 @@ browser proxy or build the Swift AutoFill provider. Do not use upstream's
 development launcher, which enables debugging flags. Do not launch with a real
 account until the reviewed signing and isolation checks pass.
 
-These compilation/packaging commands are the next build route, **not commands
-verified by this source-preparation run**. A complete Electron/Rust build,
-packaged launch, dependency/license inventory and signed release remain pending.
+The full native release, OSS main/preload/renderer compilation and arm64 packaging
+commands passed on `osiris.local` on 2026-10-22. The app launched through normal
+macOS `open` without credentials or a security bypass. This establishes a local
+launch, not account, sync or Touch ID acceptance. See the
+[build receipt and handoff](desktop-build-2026-10-22.md).
+
+For a fresh candidate, the repeatable command below provisions checksum-pinned
+Node 24.22.1 inside this project's `.cache/runtime`, prepares and verifies source,
+then runs the same build and packaging steps. Cargo honors upstream's Rust 1.97.1
+toolchain file when rustup is available. It never launches, installs or publishes.
+The output directory must not already exist.
+
+```sh
+bash scripts/build-desktop-local.sh .cache/desktop-source-next
+```
+
+The local bundle has an ad-hoc signature so modified arm64 Electron code can run.
+It has no Developer ID, Apple team identity or notarization. Strict deep codesign
+verification passed; Gatekeeper assessment rejected it as an untrusted release.
+Do not remove quarantine, add security exceptions or disable Gatekeeper to share
+or launch it. A complete dependency/license inventory and trusted release remain
+pending.
 
 ## Acceptance and handoff
 

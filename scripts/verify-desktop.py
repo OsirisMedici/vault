@@ -22,19 +22,24 @@ def verify(candidate):
     assert receipt['sourceCommit'] == pin['commit']
     assert receipt['sourcePatchSha256'] == prep.digest(prep.BRANDING / 'source.patch')
     assert receipt['packagingConfigSha256'] == prep.digest(prep.BRANDING / 'electron-builder.vault.json')
+    assert receipt['charcoalThemeSha256'] == prep.digest(prep.ROOT / 'templates/scss/user.vaultwarden.scss.hbs')
     assert receipt['installed'] is False and receipt['runtimeVerified'] is False
 
     tracked = set(prep.run('git', 'ls-files', cwd=prep.SOURCE).splitlines())
     patched = set(re.findall(r'^\+\+\+ b/(.+)$', (prep.BRANDING / 'source.patch').read_text(), re.M))
     locales = {p for p in tracked if re.fullmatch(r'apps/desktop/src/locales/[^/]+/messages.json', p)}
     logo = 'libs/assets/src/svg/svgs/password-manager.ts'
+    landing_logos = {
+        'libs/assets/src/svg/svgs/bitwarden-logo.icon.ts': 'BitwardenLogo',
+        'libs/assets/src/svg/svgs/bitwarden-logo-beta.icon.ts': 'BitwardenLogoBeta',
+    }
     images = {
         'apps/desktop/src/images/icon.png',
         'apps/desktop/src/images/icon_dev.png',
         'apps/desktop/src/images/icon-template.png',
         'apps/desktop/src/images/icon-template@2x.png',
     }
-    changed = patched | locales | images | {logo}
+    changed = patched | locales | images | {logo} | set(landing_logos)
     for path in sorted(tracked - changed):
         assert (candidate / path).read_bytes() == (prep.SOURCE / path).read_bytes(), f'Unexpected change: {path}'
 
@@ -55,13 +60,22 @@ def verify(candidate):
         for key, label in [('bitwarden', 'Vault'), ('bitwardenBeta', 'Vault Preview')]:
             if key in original:
                 original[key]['message'] = label
+        for key in ['appLogoLabel', 'newToBitwarden', 'loginPageEmailEntryScreenTitle']:
+            if key in original:
+                original[key]['message'] = original[key]['message'].replace('Bitwarden', 'Vault')
         assert json.loads((candidate / path).read_text()) == original, f'Unexpected locale change: {path}'
     expected_logo = ('import { svg } from "../svg";\n\nconst PasswordManagerLogo = svg`\n'
                      + (prep.ROOT / 'branding/wordmark.svg').read_text().strip()
                      + '\n`;\n\nexport default PasswordManagerLogo;\n')
     assert (candidate / logo).read_text() == expected_logo
+    for path, symbol in landing_logos.items():
+        expected = ('import { svg } from "../svg";\n\n'
+                    f'export const {symbol} = svg`\n'
+                    + (prep.ROOT / 'branding/wordmark.svg').read_text().strip() + '\n`;\n')
+        assert (candidate / path).read_text() == expected
 
     desktop = candidate / 'apps/desktop'
+    assert (desktop / 'src/scss/vault.css').read_text() == prep.desktop_theme_css()
     copied = {
         'electron-builder.vault.json': prep.BRANDING / 'electron-builder.vault.json',
         'scripts/vault-after-pack.js': prep.BRANDING / 'vault-after-pack.js',
@@ -76,6 +90,7 @@ def verify(candidate):
         assert (desktop / target).read_bytes() == source.read_bytes(), f'Unexpected generated file: {target}'
     generated = {'apps/desktop/' + p for p in copied} | {
         'vault-source-receipt.json', 'apps/desktop/scripts/vault-candidate.json',
+        'apps/desktop/src/scss/vault.css',
         'apps/desktop/resources/vault.icns',
     }
     actual = {p.relative_to(candidate).as_posix() for p in candidate.rglob('*') if p.is_file()}

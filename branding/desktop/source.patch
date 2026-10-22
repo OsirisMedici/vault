@@ -223,3 +223,86 @@
    },
    "dependencies": {
      "@bitwarden/desktop-napi": "file:../desktop_native/napi"
+--- a/apps/desktop/src/app/services/init.service.ts
++++ b/apps/desktop/src/app/services/init.service.ts
+@@ -1,4 +1,4 @@
+-import { Inject, Injectable, DOCUMENT } from "@angular/core";
++import { Inject, Injectable, DOCUMENT, inject } from "@angular/core";
+ import { firstValueFrom } from "rxjs";
+ 
+ import { AbstractThemingService } from "@bitwarden/angular/platform/services/theming/theming.service.abstraction";
+@@ -11,6 +11,9 @@
+ import { EventUploadService } from "@bitwarden/common/dirt/event-logs/services/event-upload.service";
+ import { SharedUnlockPeerService } from "@bitwarden/common/key-management/shared-unlock";
+ import { DefaultVaultTimeoutService } from "@bitwarden/common/key-management/vault-timeout";
++import { EnvironmentService, Region } from "@bitwarden/common/platform/abstractions/environment.service";
++import { GLOBAL_ENVIRONMENT_KEY } from "@bitwarden/common/platform/services/default-environment.service";
++import { StateProvider } from "@bitwarden/common/platform/state";
+ import { I18nService as I18nServiceAbstraction } from "@bitwarden/common/platform/abstractions/i18n.service";
+ import { PlatformUtilsService as PlatformUtilsServiceAbstraction } from "@bitwarden/common/platform/abstractions/platform-utils.service";
+ import { SdkLoadService } from "@bitwarden/common/platform/abstractions/sdk/sdk-load.service";
+@@ -39,6 +42,9 @@
+ 
+ @Injectable()
+ export class InitService {
++  private readonly environmentService = inject(EnvironmentService);
++  private readonly stateProvider = inject(StateProvider);
++
+   constructor(
+     @Inject(WINDOW) private win: Window,
+     private vaultTimeoutService: DefaultVaultTimeoutService,
+@@ -78,9 +84,18 @@
+       await this.sdkLoadService.loadAndInit();
+       await this.ipcService.init();
+       await this.biometricsService.setUnlockService(this.unlockService);
+-      await this.sshAgentService.init();
++      // Vault local acceptance excludes SSH agent initialization.
+       this.nativeMessagingService.init();
+       await this.migrationRunner.waitForCompletion(); // Desktop will run migrations in the main process
++
++      // Seed only an unset profile. Preserve every saved custom-server selection.
++      const environmentState = this.stateProvider.getGlobal(GLOBAL_ENVIRONMENT_KEY);
++      const savedEnvironment = await firstValueFrom(environmentState.state$);
++      if (savedEnvironment?.region == null && savedEnvironment?.urls == null) {
++        await this.environmentService.setEnvironment(Region.SelfHosted, {
++          base: "https://vault.scaleadvertisement.com",
++        });
++      }
+ 
+       const accounts = await firstValueFrom(this.accountService.accounts$);
+       const userIds = Object.keys(accounts) as UserId[];
+@@ -123,9 +138,7 @@
+ 
+       await this.sharedUnlockPeerService.start();
+       await this.biometricMessageHandlerService.init();
+-      await this.autofillService.init();
+-      await this.autotypeMvpService.init();
+-      await this.autotypeService.init();
++      // Vault local acceptance excludes system AutoFill and autotype initialization.
+     };
+   }
+ }
+--- a/apps/desktop/src/app/main.ts
++++ b/apps/desktop/src/app/main.ts
+@@ -7,6 +7,9 @@
+ require("../scss/styles.scss");
+ // eslint-disable-next-line @typescript-eslint/no-require-imports
+ require("../scss/tailwind.css");
++// Vault uses the same charcoal palette as its web app.
++// eslint-disable-next-line @typescript-eslint/no-require-imports
++require("../scss/vault.css");
+ 
+ import { AppModule } from "./app.module";
+ 
+--- a/apps/desktop/src/main/window.main.ts
++++ b/apps/desktop/src/main/window.main.ts
+@@ -631,7 +631,7 @@
+     switch (theme) {
+       case "light":
+-        return "#ededed";
++        return "#171719";
+       case "dark":
+-        return "#15181e";
++        return "#171719";
+     }
+   }
