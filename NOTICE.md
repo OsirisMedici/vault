@@ -17,7 +17,7 @@ The pinned upstream repositories retain their original licenses and notices:
 
 The release process uses the exact web client already bundled with the pinned
 Vaultwarden image. It changes only display-name strings, logo labels, static
-branding assets and index metadata. It adds CSS through Vaultwarden's supported
+branding assets, index metadata and a translation-cache suffix. It adds CSS through Vaultwarden's supported
 `scss/user.vaultwarden.scss.hbs` hook. Existing upstream disclaimers remain.
 
 The GPL and AGPL do not grant trademark rights. Bitwarden and Vaultwarden are

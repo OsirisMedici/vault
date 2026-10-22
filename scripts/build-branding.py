@@ -34,6 +34,7 @@ def build(source, output):
     main = (source / main_path).read_text()
     main = replace_exact(main, 'Vaultwarden Web', 'Keyflow', 3, 'display-name strings')
     main = replace_exact(main, '"alt","Vaultwarden"', '"alt","Keyflow"', 1, 'loading-logo label')
+    main = replace_exact(main, '/messages.json?cache=5dwehg', '/messages.json?cache=5dwehg-keyflow-0.1.0', 1, 'versioned logo translations')
     branded_main_path = main_path.with_name('main.keyflow.' + hashlib.sha256(main.encode()).hexdigest()[:20] + '.js')
     index = replace_exact(index, str(main_path), str(branded_main_path), 1, 'versioned main bundle')
     index = replace_exact(index, '<title page-title>Vaultwarden Web</title>', '<title page-title>Keyflow</title>', 1, 'index title')
