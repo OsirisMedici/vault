@@ -69,7 +69,7 @@ export function createLoginController({credentials, driver, now = Date.now, sele
         if (after.origin !== s.origin || !controlled(after)) return result({state:'denied',requestId,reasonCode:'origin_mismatch'});
         if (verified?.matched === true && provider.normalize(verified.observedUsername) === provider.normalize(s.username)) return result({state:'signed_in',requestId,account:{name:s.name,username:s.username,origin:s.origin}});
         return result({state:'verification_required',requestId,reasonCode:verified?.verificationRequired ? 'owner_verification_required' : 'identity_unverified'});
-      } catch { return result({state:'failed',requestId,reasonCode:'credential_unavailable'}); }
+      } catch (error) { return result({state:['engine_unavailable','import_required','denied'].includes(error?.state)?error.state:'failed',requestId,reasonCode:'credential_unavailable'}); }
       finally { requests.delete(requestId); }
     };
     const pending = queue.then(run,run);

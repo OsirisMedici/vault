@@ -76,7 +76,7 @@ function parseManifest(raw) {
         typeof row.credentialRef !== 'string' || !/^VW_[A-Z0-9]{1,128}$/u.test(row.credentialRef) ||
         !Array.isArray(row.origins) || row.origins.length > 128 ||
         !textField(row.importedAt, 64) ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u.test(row.importedAt) ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u.test(row.importedAt) ||
         !Number.isFinite(Date.parse(row.importedAt)) ||
         ('sourceItemId' in row && !textField(row.sourceItemId, 256)) ||
         ids.has(row.accountId) || refs.has(row.credentialRef)) fail('manifest_invalid');

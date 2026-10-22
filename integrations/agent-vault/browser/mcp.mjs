@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { pathToFileURL } from 'node:url';
 import { isAbsolute, dirname } from 'node:path';
 import { lstat } from 'node:fs/promises';
@@ -29,7 +29,7 @@ export async function createServer({credentials,callTool = createT3CallTool(),cl
   return server;
 }
 async function main() {
-  let runtime = {};
+  let runtime = await (await import('./runtime.mjs')).createRuntime();
   const path = process.env.VAULT_AGENT_RUNTIME_MODULE;
   if (path) {
     if (!isAbsolute(path)) throw new Error('invalid_configuration');

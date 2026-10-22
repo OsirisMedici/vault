@@ -1,5 +1,9 @@
 # Agent Vault integration audit after independent delivery
 
+Follow-up: the subsequently authorized integration is implemented and its
+current status is recorded in [the integration handoff](agent-vault-integration-2026-10-22.md).
+The read-only findings below describe the state before that work.
+
 22 October 2026. Read-only review of the three engineering handoffs, the
 fourth import/login chat, committed source and current runtime metadata.
 No engineer was contacted or restarted. No credential values were read,

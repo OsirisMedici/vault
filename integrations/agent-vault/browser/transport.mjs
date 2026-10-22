@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-const allowed = new Set(['t3_preview_list','preview_status','preview_click','preview_evaluate','preview_press']);
+const allowed = new Set(['t3_preview_list','preview_status','preview_click','preview_evaluate','preview_press','preview_navigate']);
 export function unwrap(result) {
   if (result?.isError) throw new Error('host_operation_failed');
   if (result?.structuredContent) return result.structuredContent;

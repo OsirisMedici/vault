@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-22",
+  "engineRevision": "d5836ec3bb2315de38043d742ae5daca11a4944a",
+  "engineBinarySha256": "346465d4cc8526100c1bc859199aeaa36aea386b20a51b0ac67346b01f0902c6",
+  "persistentRuntime": {
+    "managedBy": "macOS user LaunchAgent",
+    "label": "com.osirismedici.agent-vault",
+    "existingStatePreserved": true,
+    "consistentPreInstallSnapshot": true,
+    "integrityCheck": "ok",
+    "restartVerified": true,
+    "importedAccounts": 253,
+    "importedCredentialFields": 506
+  },
+  "integration": {
+    "branch": "work/agent-vault-integrated",
+    "runtime": "Bun 1.4.4",
+    "browserTransport": "chat-tool-relay",
+    "standaloneExternalTransport": "blocked_missing_supported_host_capability",
+    "vpsEngineDeployed": false,
+    "installedDesktopReplaced": false
+  },
+  "cases": {
+    "C08": {
+      "result": "passed",
+      "assembledMetadataLookup": true,
+      "realEngineReady": true,
+      "secretFieldsInPublicResult": false
+    },
+    "C09": {
+      "result": "passed",
+      "provider": "clickup",
+      "freshSignIn": true,
+      "exactIdentityVerified": true
+    },
+    "C10": {
+      "result": "passed",
+      "provider": "godial",
+      "freshSignIn": true,
+      "exactIdentityVerified": true
+    },
+    "C04": {
+      "externalTransport": "blocked",
+      "approvedChatFallback": "verified_in_C09_C10"
+    }
+  },
+  "verificationScope": "Allocated integration cases were repeated after observed fixes; no upstream or broad suites rerun."
+}

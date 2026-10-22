@@ -15,8 +15,15 @@ Official Bitwarden desktop, mobile and extension clients retain their branding
 and can keep using the same server.
 
 An isolated [Agent Vault evaluation](docs/agent-vault-evaluation-2026-10-22.md)
-tests API credential brokering with dummy data. It is a research and test
-artifact; no Agent Vault runtime integration is enabled.
+tests API credential brokering with dummy data. That initial research preceded
+the assembled integration described below.
+
+The [assembled Agent Vault integration](integrations/agent-vault/README.md)
+adds a persistent private macOS engine, imported-account selection and a
+chat-assisted browser login path. ClickUp and GoDial exact-account sign-ins
+were verified. This source integration does not replace the desktop app or
+deploy Agent Vault to the VPS. Independent external MCP browser control remains
+unavailable without a supported T3 host capability.
 
 ## Source
 

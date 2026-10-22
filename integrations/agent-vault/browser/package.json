@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.4.4",
   "license": "GPL-3.0-only",
-  "scripts": {"start":"node mcp.mjs", "check:c05":"node acceptance-c05.mjs"},
+  "scripts": {"start":"bun mcp.mjs", "chat":"bun chat-session.mjs", "check:c05":"bun acceptance-c05.mjs"},
   "dependencies": {"@modelcontextprotocol/sdk":"1.32.1", "zod":"4.6.7"}
 }
