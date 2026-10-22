@@ -133,3 +133,43 @@ restore-tested backup recovery, or permission for future account actions.
 The importer has a brief create-then-deny configuration interval before any
 passwords are written because the upstream create API has no deny-policy
 argument. No credentials were present in the new vault during that interval.
+
+## Subsequent owner-requested browser demonstration
+
+After the import, Osiris explicitly requested five website login demonstrations
+in this chat's existing single browser tab. This was a new authorization for
+provider sign-ins, separate from the import's C06/C07 cases. No other threads
+were contacted for the demonstrations.
+
+The protected native adapter reported `native_adapter_required`. The helper
+`integrations/agent-vault/import/demo_login.py` instead transferred one selected
+credential field at a time from Agent Vault to the host clipboard. The browser
+pasted it into the observed official login form, then the helper cleared the
+clipboard if its contents still matched. Passwords never appeared in tool
+arguments, shell arguments, printed API bodies or source. Exact account
+references were kept in a temporary private selection file, outside source.
+Each transfer required an HTTPS origin already in the imported manifest.
+This is a same-user manual demonstration, not a production protected connector.
+
+Observed outcomes:
+
+- Canva accepted the saved credentials and opened the existing design dashboard.
+- ClickUp accepted the saved credentials and opened the Scale workspace.
+- Kit reached new-device email approval. Osiris chose to skip that private step.
+- GitHub reached passkey/security-key two-factor authentication. Osiris chose
+  to skip that private step.
+- GoDaddy blocked the browser after email submission with "Your browser is a
+  bit unusual". Its password was not submitted. No security settings, network
+  controls or browser protections were changed to work around that check.
+
+Notion and Hostinger were inspected before the final selection. Both required
+email addresses, while their imported username fields were not email addresses.
+Notion rejected the submitted username as an invalid email. Neither site's
+password was submitted. Those source records were left intact; GitHub and
+GoDaddy replaced them in the demonstration selection.
+
+The final five sites were not five completed sign-ins. Two signed in, two await
+private owner approval, and one was blocked by its provider's browser check.
+No MFA seeds, codes, passkeys, recovery links, or provider cookies were read or
+copied by the helper. The temporary private selection file was removed at the
+end, so the demonstration helper cannot run again without a fresh selection.
