@@ -12,14 +12,22 @@ Host: `osiris.local`, arm64, macOS 26.2. The isolated build worktree is
 The app path, relative to that worktree, is:
 
 ```text
-.cache/desktop-source/apps/desktop/dist-vault/mac-arm64/Vault.app
+.cache/desktop-source/apps/desktop/dist-vault-self-hosted/mac-arm64/Vault.app
 ```
 
 To inspect it on this Mac, use normal macOS launch:
 
 ```sh
-open .cache/desktop-source/apps/desktop/dist-vault/mac-arm64/Vault.app
+open .cache/desktop-source/apps/desktop/dist-vault-self-hosted/mac-arm64/Vault.app
 ```
+
+The self-hosted-only menu update was packaged into this separate output while
+Osiris's security-key sign-in continued in the previous `dist-vault` app.
+Compilation, packaged selector source and strict ad-hoc signature verification
+passed for the update. It has not been launched or checked in a native window;
+close the previous app when ready, then open this candidate. Do not interrupt an
+active sign-in merely to repeat acceptance. Fresh source builds still use the
+standard `dist-vault` output directory.
 
 Inspect the Vault logo, login heading and menu, neutral charcoal palette, and
 the selected `vault.scaleadvertisement.com` server. Open the server selector to
@@ -49,7 +57,7 @@ bash scripts/build-desktop-local.sh .cache/desktop-source-next
 The following completed successfully:
 
 - Source verification against 9,157 tracked upstream files, including exact
-  review of nine patched files, 66 locale files, and generated branding assets.
+  review of the branded source, 66 locale files, and generated branding assets.
 - `npm ci`, release N-API compilation, OSS main/preload/renderer compilation,
   and arm64 `electron-builder --dir` packaging with the Vault configuration.
 - Native launch through normal macOS `open`. The observed window belongs to
@@ -78,6 +86,9 @@ An unset server selection is seeded through upstream's self-hosted environment
 service with `https://vault.scaleadvertisement.com`. Empty deserialized state is
 treated as unset. A saved region or saved URL configuration is preserved.
 The existing selector and URL validation remain available. No server is changed.
+The login selector now lists self-hosted settings only. Its Bitwarden US/EU
+entries are removed from the template. Existing account environments remain
+intact; this is a choice-menu change, not a server or authentication change.
 
 Upstream updates, browser manifest/socket changes, proxy launch and shared URL
 registration remain disabled. SSH, system AutoFill and autotype startup are

@@ -10,7 +10,9 @@ and separate local candidate packaging. The desktop reuses Vault's selected web
 charcoal palette, including neutral controls and a matching native window background.
 A profile with no saved server selection
 defaults to https://vault.scaleadvertisement.com through the existing self-hosted
-environment service. Saved selections and the custom-server selector are retained. The existing
+environment service. The login selector offers only self-hosted settings; the
+Bitwarden US/EU menu entries are removed. Saved environments and custom-server
+editing are retained. The existing
 macOS biometric and Keychain implementation is retained. Existing attribution,
 warnings, API formats, encryption, key derivation and vault synchronization remain
 upstream code. Some product copy and support links still identify upstream.

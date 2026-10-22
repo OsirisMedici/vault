@@ -60,6 +60,9 @@ This is a reproducible source candidate for macOS arm64. Included:
 - A self-hosted default of `https://vault.scaleadvertisement.com` only when the
   profile has no saved environment. Saved server choices and the custom-server
   selector continue to use the upstream environment service and validation.
+- The desktop login selector offers self-hosted settings only. Bitwarden US/EU
+  menu entries are removed from the candidate template; server validation and
+  existing account environments are unchanged.
 - A separate unsigned local packaging configuration that retains upstream
   Electron security fuses, contains source notices, and excludes upstream
   signing/notarization hooks, provisioning profiles and extensions.
