@@ -51,8 +51,8 @@ export function createBridge(socketPath = defaultSocket) {
       await new Promise((resolve, reject) => { candidate.once('connect', resolve); candidate.once('error', reject); });
       socket = candidate;
       candidate.setEncoding('utf8');
-      candidate.on('error', fail);
-      candidate.on('close', fail);
+      candidate.on('error', () => { if (socket === candidate) fail(); });
+      candidate.on('close', () => { if (socket === candidate) fail(); });
       candidate.on('data', chunk => {
         buffer += chunk;
         if (buffer.length > 128 * 1024) { candidate.destroy(); return; }
