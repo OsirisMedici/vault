@@ -46,7 +46,8 @@ export async function privateRead(filename, max) {
 
 export function validateConfig(config) {
   const keys = ['version', 'vaultOrigin', 'allowedUserIds', 'manifestPath', 'workerTokenFile', 'databasePath', 'engineAddress'];
-  if (!exactKeys(config, keys) || config.version !== 1 || !Array.isArray(config.allowedUserIds) ||
+  if (config?.version === 2) keys.push('permissionsPath');
+  if (!exactKeys(config, keys) || ![1, 2].includes(config.version) || !Array.isArray(config.allowedUserIds) ||
       !config.allowedUserIds.length || config.allowedUserIds.length > 32 ||
       !config.allowedUserIds.every(uuid) || new Set(config.allowedUserIds).size !== config.allowedUserIds.length) fail();
   origin(config.vaultOrigin);
@@ -60,7 +61,7 @@ export function validateConfig(config) {
 export async function loadConfig(filename = process.env.VAULT_AGENT_WEB_CONFIG) {
   try {
     const config = validateConfig(JSON.parse(await privateRead(filename, 16384)));
-    if ([config.manifestPath, config.workerTokenFile, config.databasePath].includes(filename)) fail();
+    if ([config.manifestPath, config.workerTokenFile, config.databasePath, config.permissionsPath].includes(filename)) fail();
     return config;
   } catch { fail(); }
 }

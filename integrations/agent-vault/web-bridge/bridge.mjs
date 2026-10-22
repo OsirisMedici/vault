@@ -3,9 +3,11 @@ import { Database } from 'bun:sqlite';
 import { createHash, timingSafeEqual, randomUUID } from 'node:crypto';
 import { fail, exactKeys, object, privateRead, prepareDatabase, uuid, validateConfig } from './config.mjs';
 import { loadMetadata, providers } from './metadata.mjs';
+import { canAccess, loadPermissions, replaceOwnerGrants } from './permissions.mjs';
 
 export const limits = Object.freeze({ bodyBytes: 2048, responseBytes: 1024 * 1024, upstreamBytes: 65536,
-  timeoutMs: 5000, ttlMs: 300000, retentionMs: 3600000, activeJobs: 64, storedJobs: 1024, inFlight: 32 });
+  timeoutMs: 5000, ttlMs: 300000, retentionMs: 3600000, activeJobs: 64, storedJobs: 1024, inFlight: 32,
+  history: 25, auditRecords: 1024 });
 const terminal = new Set(['signed_in', 'verification_required', 'credentials_rejected', 'failed']);
 const publicCodes = new Set(['unauthorized','forbidden','invalid_request','not_found','active_request','queue_full','invalid_state']);
 const digest = value => createHash('sha256').update(value).digest();
@@ -67,6 +69,7 @@ export async function createBridge({ config: input, fetchImpl = globalThis.fetch
     const config = validateConfig(input);
     if (typeof fetchImpl !== 'function' || typeof now !== 'function') fail();
     const metadata = await loadMetadata(config.manifestPath);
+    await loadPermissions(config, metadata); // An opted-in policy is mandatory, never a v1 fallback.
     let capability = await privateRead(config.workerTokenFile, 256);
     if (!/^[A-Za-z0-9_-]{43,128}\n?$/.test(capability)) fail();
     const capabilityHash = digest(capability.replace(/\n$/, ''));
@@ -83,7 +86,13 @@ export async function createBridge({ config: input, fetchImpl = globalThis.fetch
         expiresAt INTEGER NOT NULL, createdAt INTEGER NOT NULL,
         identityVerified INTEGER NOT NULL DEFAULT 0 CHECK(identityVerified IN (0,1))
       );
-      CREATE UNIQUE INDEX IF NOT EXISTS one_active_owner ON jobs(ownerId) WHERE state IN ('queued','working');`);
+      CREATE UNIQUE INDEX IF NOT EXISTS one_active_owner ON jobs(ownerId) WHERE state IN ('queued','working');
+      CREATE INDEX IF NOT EXISTS owner_history ON jobs(ownerId,createdAt DESC);
+      CREATE TABLE IF NOT EXISTS audit (
+        sequence INTEGER PRIMARY KEY, createdAt INTEGER NOT NULL,
+        actorId TEXT NOT NULL, action TEXT NOT NULL, requestId TEXT,
+        accountId TEXT, provider TEXT
+      );`);
     if (db.query('PRAGMA page_size').get().page_size !== 4096) fail();
     const clock = () => {
       const value = now();
@@ -93,6 +102,15 @@ export async function createBridge({ config: input, fetchImpl = globalThis.fetch
     const clean = time => {
       db.query("UPDATE jobs SET state='expired',identityVerified=0 WHERE state IN ('queued','working') AND expiresAt<=?").run(time);
       db.query("DELETE FROM jobs WHERE state NOT IN ('queued','working') AND expiresAt<=?").run(time - limits.retentionMs);
+      db.query('DELETE FROM audit WHERE createdAt<=?').run(time - limits.retentionMs);
+      db.query('DELETE FROM audit WHERE sequence NOT IN (SELECT sequence FROM audit ORDER BY sequence DESC LIMIT ?)').run(limits.auditRecords);
+    };
+    const audit = (action, actorId, row) => {
+      const time = clock();
+      db.query('INSERT INTO audit (createdAt,actorId,action,requestId,accountId,provider) VALUES (?,?,?,?,?,?)')
+        .run(time, actorId, action, row?.requestId ?? null, row?.accountId ?? null, row?.provider ?? null);
+      db.query('DELETE FROM audit WHERE createdAt<=? OR sequence NOT IN (SELECT sequence FROM audit ORDER BY sequence DESC LIMIT ?)')
+        .run(time - limits.retentionMs, limits.auditRecords);
     };
     const atomic = operation => {
       const result = db.transaction(() => {
@@ -176,20 +194,23 @@ export async function createBridge({ config: input, fetchImpl = globalThis.fetch
       const isWorker = pathname === '/worker/claim' || pathname === '/worker/complete';
       const match = /^\/requests\/([0-9a-f-]{36})(\/cancel)?$/.exec(pathname);
       const known = isWorker ? method === 'POST' :
-        ((pathname === '/status' || pathname === '/accounts') && method === 'GET') ||
+        ((pathname === '/status' || pathname === '/accounts' || pathname === '/requests') && method === 'GET') ||
         (pathname === '/requests' && method === 'POST') ||
         (match && uuid(match[1]) && ((!match[2] && method === 'GET') || (match[2] && method === 'POST')));
       if (!known) error(404, 'not_found');
       let ownerId;
+      let policy;
       if (isWorker) worker(request);
       else {
         const suppliedOrigin = request.headers.get('origin');
         if ((suppliedOrigin !== null && suppliedOrigin !== config.vaultOrigin) ||
             (method === 'POST' && suppliedOrigin === null)) error(403, 'forbidden');
         ownerId = await user(request);
+        policy = await loadPermissions(config, metadata);
       }
 
-      if (pathname === '/accounts') return response({ accounts: metadata.accounts });
+      const permitted = row => canAccess(config, policy, ownerId, row.accountId, row.provider);
+      if (pathname === '/accounts') return response({ accounts: metadata.accounts.filter(permitted) });
       if (pathname === '/status') {
         let ready = false;
         try {
@@ -197,13 +218,30 @@ export async function createBridge({ config: input, fetchImpl = globalThis.fetch
           // No Authorization, cookies, worker capability, or Vault token is attached.
           ready = (await upstream(config.engineAddress + '/health', {}))?.status === 'ok';
         } catch { /* Fixed public state only. */ }
+        policy = await loadPermissions(config, metadata);
+        const count = new Set(metadata.accounts.filter(permitted).map(a => a.accountId)).size;
         return response({ state: ready ? 'ready' : 'engine_unavailable', browserMode: 'chat-assisted',
-          importedAccounts: metadata.importedAccounts, supportedAccounts: new Set(metadata.accounts.map(a => a.accountId)).size });
+          importedAccounts: config.version === 1 ? metadata.importedAccounts : count, supportedAccounts: count });
       }
       if (pathname === '/requests') {
+        if (method === 'GET') {
+          const rows = atomic(() => {
+            clean(clock());
+            // Storage is bounded; filter revoked grants before taking the newest 25.
+            return db.query('SELECT * FROM jobs WHERE ownerId=? ORDER BY createdAt DESC,rowid DESC')
+              .all(ownerId).filter(permitted).slice(0, limits.history);
+          });
+          return response({ requests: rows.map(projection) });
+        }
         const value = await body(request, ['accountId', 'provider']);
+        // Body reads are asynchronous. Re-read policy immediately before mutation.
+        policy = await loadPermissions(config, metadata);
         const account = metadata.accounts.find(a => a.accountId === value.accountId && a.provider === value.provider);
         if (!account || !Object.hasOwn(providers, value.provider)) error(400, 'invalid_request');
+        if (!permitted(account)) {
+          atomic(() => audit('create_denied', ownerId));
+          error(403, 'forbidden');
+        }
         const row = atomic(() => {
           const time = clock(); clean(time);
           if (db.query("SELECT 1 FROM jobs WHERE ownerId=? AND state IN ('queued','working')").get(ownerId)) error(409, 'active_request');
@@ -214,19 +252,22 @@ export async function createBridge({ config: input, fetchImpl = globalThis.fetch
           db.query(`INSERT INTO jobs (requestId,ownerId,accountId,provider,name,username,origin,state,expiresAt,createdAt)
             VALUES (?,?,?,?,?,?,?,'queued',?,?)`).run(id, ownerId, account.accountId, account.provider,
             account.name, account.username, account.origin, time + limits.ttlMs, time);
+          audit('queued', ownerId, get(id));
           return get(id);
         });
         return response(projection(row), 201);
       }
       if (match) {
         if (match[2]) await body(request, []);
+        policy = await loadPermissions(config, metadata);
         const row = atomic(() => {
           clean(clock());
           let row = get(match[1]);
-          if (!row || row.ownerId !== ownerId) error(404, 'not_found');
+          if (!row || row.ownerId !== ownerId || !permitted(row)) error(404, 'not_found');
           if (match[2]) {
             if (row.state !== 'queued') error(409, 'invalid_state');
             db.query("UPDATE jobs SET state='cancelled',identityVerified=0 WHERE requestId=? AND state='queued'").run(row.requestId);
+            audit('cancelled', ownerId, row);
             row = get(row.requestId);
           }
           return row;
@@ -237,20 +278,42 @@ export async function createBridge({ config: input, fetchImpl = globalThis.fetch
       const value = await body(request, claim ? ['requestId'] : ['requestId', 'state', 'identityVerified']);
       if (!uuid(value.requestId) || (!claim && (!terminal.has(value.state) || typeof value.identityVerified !== 'boolean' ||
           value.identityVerified !== (value.state === 'signed_in')))) error(400, 'invalid_request');
+      policy = await loadPermissions(config, metadata);
       const row = atomic(() => {
         clean(clock());
         const row = get(value.requestId);
         if (!row) error(404, 'not_found');
         if (row.state !== (claim ? 'queued' : 'working')) error(409, 'invalid_state');
+        if (!metadata.accounts.some(account => account.accountId === row.accountId && account.provider === row.provider) ||
+            !canAccess(config, policy, row.ownerId, row.accountId, row.provider)) {
+          db.query('UPDATE jobs SET state=?,identityVerified=0 WHERE requestId=?')
+            .run(claim ? 'cancelled' : 'failed', row.requestId);
+          audit('revoked', row.ownerId, row);
+          error(403, 'forbidden');
+        }
         const state = claim ? 'working' : value.state;
         db.query('UPDATE jobs SET state=?,identityVerified=? WHERE requestId=? AND state=?')
           .run(state, claim ? 0 : Number(value.identityVerified), value.requestId, row.state);
+        audit(state, row.ownerId, row);
         return get(value.requestId);
       });
       return response({ ...projection(row), ...(claim ? { accountId: row.accountId } : {}) });
     }
 
     return Object.freeze({
+      // Trusted local host code only. The caller authenticates ownerId separately;
+      // the browser/worker HTTP capabilities never expose this helper.
+      async replaceOwnerGrants({ ownerId, expectedRevision, grants } = {}) {
+        try {
+          if (closed || config.version !== 2) fail();
+          const policy = await loadPermissions(config, metadata);
+          if (!policy.owners.some(owner => owner.ownerId === ownerId)) fail();
+          atomic(() => audit('grant_update_attempt', ownerId));
+          const result = await replaceOwnerGrants({ config, metadata, ownerId, expectedRevision, grants });
+          atomic(() => audit('grant_update_applied', ownerId));
+          return result;
+        } catch { fail(); }
+      },
       async fetch(request) {
         if (closed || inFlight >= limits.inFlight) return response({ error: 'unavailable' }, 503);
         inFlight++;

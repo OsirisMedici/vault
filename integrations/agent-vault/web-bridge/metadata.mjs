@@ -42,5 +42,6 @@ export async function loadMetadata(filename) {
     if (accounts.length > 256) fail();
   }
   if (Buffer.byteLength(JSON.stringify({ accounts })) > 1024 * 1024) fail();
-  return Object.freeze({ importedAccounts: manifest.accounts.length, accounts: Object.freeze(accounts) });
+  return Object.freeze({ importedAccounts: manifest.accounts.length, accountIds: Object.freeze([...ids]),
+    accounts: Object.freeze(accounts) });
 }
