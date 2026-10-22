@@ -39,6 +39,11 @@ consistent pre-install snapshot and a nonsecret install receipt. The snapshot
 also contains unlock material and must remain private. It is not an independently
 encrypted off-host backup or a validated disaster-recovery restore.
 
+The follow-up [recovery helper](../../docs/agent-vault-recovery.md) now creates
+a new consistent snapshot and verifies a separate offline copy. One real case
+passed with all 253 accounts and the existing wrapping/master/CA material
+preserved. It does not test decryption, a live restore or off-host recovery.
+
 Public source revision: upstream v0.40.1,
 d5836ec3bb2315de38043d742ae5daca11a4944a. The retained binary has only the
 documented trial state-path override. No crypto or authorization logic changed.
@@ -132,6 +137,12 @@ works. The chat relay above uses already-injected supported tools and is a
 separate, verified fallback. Do not scrape T3 state/tokens or claim the relay
 solves that external capability requirement.
 
+Run `bun integrations/agent-vault/browser/check-transport-readiness.mjs` for one
+metadata-only external transport probe. It prints presence flags and bounded
+status, never capability values. The [transport handoff](../../docs/agent-vault-transport-readiness.md)
+records the exact host prerequisite. Supplying an environment to the transport
+now also controls its default executable and optional entrypoint.
+
 ## Provider verification
 
 ClickUp uses its observed numeric-workspace /settings/profile URL and the
@@ -151,6 +162,13 @@ Owned engineer commits are combined on work/agent-vault-integrated. The original
 main checkout, upstream checkouts, Bitwarden data/Keychain and installed T3 app
 are preserved. No source push, main-branch merge or VPS engine deployment is
 claimed. VPS deployment files in deploy/agent-vault remain prepared separately.
+
+The [VPS delivery package](../../deploy/agent-vault/README.md) now accepts the
+recovery helper's snapshot directly and stages an existing database/master/CA
+into a fresh Linux destination. It excludes Mac helper files and refuses
+overwrite or fresh empty initialization. Its synthetic preservation case and
+Compose validation passed. Container build, Linux ownership, real unlock and
+VPS acceptance remain unverified; no remote activation or transfer occurred.
 
 To stop the added runtime, use manage.py stop. Preserve its data, keys and
 pre-install snapshot. The original temporary source state is also retained for

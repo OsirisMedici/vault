@@ -44,5 +44,25 @@
       "approvedChatFallback": "verified_in_C09_C10"
     }
   },
-  "verificationScope": "Allocated integration cases were repeated after observed fixes; no upstream or broad suites rerun."
+  "verificationScope": "Allocated integration cases were repeated after observed fixes; no upstream or broad suites rerun.",
+  "parallelFollowup": {
+    "workersCompleted": 3,
+    "ownedCommitsIntegrated": true,
+    "transportProbe": "blocked_missing_supported_host_capability",
+    "transportSuppliedEnvironmentFixed": true,
+    "realRecoveryOfflineCopyVerified": true,
+    "recoveryCounts": {
+      "accounts": 253,
+      "importedFields": 506,
+      "totalFields": 519
+    },
+    "decryptionOrLiveRestoreTested": false,
+    "syntheticVpsSnapshotStaging": "passed_after_contract_fix",
+    "actualSnapshotReadOnlyMetadataCompatible": true,
+    "composeConfigurationValidated": true,
+    "containerBuildVerified": false,
+    "vpsActivated": false,
+    "teamLaunchAccepted": false,
+    "macChatAssistedPilot": "usable"
+  }
 }

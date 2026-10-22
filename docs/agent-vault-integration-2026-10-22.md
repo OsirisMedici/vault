@@ -92,3 +92,30 @@ from Bitwarden, additional provider routes, off-host encrypted recovery and VPS
 Agent Vault activation remain separate follow-up work. The new controller's
 accepted provider set is ClickUp and GoDial; it does not assert all 253 websites
 support unattended login.
+
+## Parallel completion and launch status
+
+All three follow-up workers completed and their owned commits were reviewed
+and assembled here. The supported transport now respects its supplied launch
+environment and has a metadata-only readiness probe. The missing per-thread
+ACP capability remains an external host dependency; the accepted chat relay
+is unchanged.
+
+The [recovery helper](agent-vault-recovery.md) created and verified a new private
+snapshot and independent offline copy at 253 accounts, 506 imported fields and
+519 total fields. Existing master wrapping and CA material matched. Decryption,
+live restoration and off-host recovery remain untested.
+
+The [VPS package](agent-vault-vps-readiness.md) stages the existing snapshot into
+a new companion destination instead of creating an empty vault. Assembly fixed
+the independent workers' snapshot-layout mismatch. A repeated synthetic case
+proved the full recovery input is accepted and Mac helpers excluded. The actual
+private snapshot also passed read-only permission and inventory compatibility
+checks. MCP bundling, shell syntax, Compose validation and whitespace checks
+passed; the live managed Mac engine remains ready with all fields preserved.
+
+The Mac chat-assisted pilot is usable. A full team/VPS launch is not accepted:
+the Linux image build and live unlock/CA/ownership checks have not run, no data
+was transferred or service deployed, and unattended T3 capability is absent.
+No source push, main merge, installed desktop replacement or team message was
+performed. Parallel code completion must not be reported as production launch.

@@ -17,7 +17,14 @@ capture in this package. The input must be an explicit consistent snapshot
 produced by the parent's recovery procedure. Never pass the live engine root.
 Never run the new-vault provisioner against this imported instance.
 
-The generic snapshot contract matches the Mac runtime's directory layout:
+Pass the `snapshot/` directory produced by
+[the recovery helper](../../docs/agent-vault-recovery.md) directly. The stager
+accepts its full layout, validates the known Mac helper files, and excludes
+`bin/`, `runtime.json`, `runtime/control.json` and `runtime/owner-login.json`
+from the Linux destination. No manual normalization or extra secret copy is
+required. The same input may be used for recovery and Linux staging.
+
+It also accepts the following minimal snapshot layout:
 
 ```text
 snapshot/                         mode700, one private owner
@@ -32,14 +39,13 @@ snapshot/                         mode700, one private owner
     master-password               mode600, existing nonempty single-line file
 ```
 
-Require exactly `runtime` and `keys` at the root, exactly `.agent-vault` under
+For the minimal layout, require exactly `runtime` and `keys` at the root, exactly `.agent-vault` under
 `runtime`, and exactly `master-password` under `keys`. All descendants must be
 private directories or regular files with the same owner. Reject symbolic links
 including path ancestors, hard-linked files, special files and SQLite
 `-wal`, `-shm` or `-journal` sidecars. Existing pre-install backups may have a
-different layout. The parent recovery procedure must normalize a NEW private
-snapshot to this contract and include committed WAL records using SQLite's
-backup API. Copying only the live `.db`, or removing sidecars from a live copy,
+different layout and are not accepted directly. Use the recovery helper to
+include committed WAL records using SQLite's backup API. Copying only the live `.db`, or removing sidecars from a live copy,
 is not a consistent snapshot. The stager never repairs or checkpoints its input.
 
 Exclude Mac binaries, LaunchAgents, keys outside this contract, host client

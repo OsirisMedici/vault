@@ -20,6 +20,9 @@ DB = Path('runtime/.agent-vault/agent-vault.db')
 MASTER = Path('keys/master-password')
 REQUIRED = (DB, MASTER, Path('runtime/.agent-vault/ca/ca.crt.pem'),
             Path('runtime/.agent-vault/ca/ca.key.enc'))
+RECOVERY_EXECUTABLES = {Path('bin/agent-vault'), Path('bin/manage.py')}
+RECOVERY_EXTRAS = {Path('bin'), *RECOVERY_EXECUTABLES, Path('runtime.json'),
+                   Path('runtime/control.json'), Path('runtime/owner-login.json')}
 
 
 class Refused(Exception):
@@ -48,7 +51,8 @@ def entries(root):
         directory = stat.S_ISDIR(info.st_mode)
         require(directory or stat.S_ISREG(info.st_mode), 'unsafe_snapshot_entry')
         require(info.st_uid == owner, 'snapshot_owner_mismatch')
-        require(stat.S_IMODE(info.st_mode) == (0o700 if directory else 0o600),
+        mode = 0o700 if directory or path.relative_to(root) in RECOVERY_EXECUTABLES else 0o600
+        require(stat.S_IMODE(info.st_mode) == mode,
                 'private_permissions_required')
         require(directory or info.st_nlink == 1, 'hardlink_refused')
         found[path.relative_to(root)] = info
@@ -130,9 +134,19 @@ def stage(snapshot, destination, expected, ownership):
     else:
         uid, gid = os.geteuid(), os.getegid()
     source = entries(snapshot)
-    require({p.parts[0] for p in source if p.parts} == {'runtime', 'keys'},
+    top = {p.parts[0] for p in source if p.parts}
+    recovery = top == {'runtime', 'keys', 'bin', 'runtime.json'}
+    require(recovery or top == {'runtime', 'keys'},
             'snapshot_layout_mismatch')
-    require({p for p in source if p.parent == Path('runtime')} == {Path('runtime/.agent-vault')}
+    runtime_entries = {Path('runtime/.agent-vault')}
+    if recovery:
+        require(RECOVERY_EXTRAS <= set(source)
+                and {p for p in source if p.parts and p.parts[0] == 'bin'} ==
+                    {Path('bin'), *RECOVERY_EXECUTABLES}, 'snapshot_layout_mismatch')
+        require(all(stat.S_ISREG(source[p].st_mode) for p in RECOVERY_EXTRAS if p != Path('bin')),
+                'snapshot_layout_mismatch')
+        runtime_entries |= {Path('runtime/control.json'), Path('runtime/owner-login.json')}
+    require({p for p in source if p.parent == Path('runtime')} == runtime_entries
             and {p for p in source if p.parent == Path('keys')} == {MASTER},
             'snapshot_layout_mismatch')
     for relative in REQUIRED:
@@ -148,13 +162,16 @@ def stage(snapshot, destination, expected, ownership):
             'single_line_master_required')
     del master
     before = inventory(snapshot / DB, expected)
-    hashes = {p: digest(snapshot / p) for p, info in source.items() if stat.S_ISREG(info.st_mode)}
+    # The parent recovery snapshot also carries Mac launch/enrollment helpers.
+    # Validate their layout but never put them in a Linux data volume or image.
+    selected = {p: info for p, info in source.items() if p not in RECOVERY_EXTRAS}
+    hashes = {p: digest(snapshot / p) for p, info in selected.items() if stat.S_ISREG(info.st_mode)}
     # mkdir is the exclusive reservation. Never accept even an existing empty dir.
     # On failure retain an incomplete private destination for manual inspection.
     destination.mkdir(mode=0o700)
     (destination / 'data').mkdir(mode=0o700)
     (destination / 'private').mkdir(mode=0o700)
-    for relative, info in source.items():
+    for relative, info in selected.items():
         if not relative.parts or relative in (Path('runtime'), Path('keys')):
             continue
         target = destination / ('private/master-password' if relative == MASTER

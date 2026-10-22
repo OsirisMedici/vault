@@ -25,6 +25,13 @@ and existing or overlapping destinations. Copies and unchanged source files
 are compared internally without exposing hashes or content. It does not prove
 that the master and encrypted CA match cryptographically.
 
+Manager assembly resolved the independent workers' snapshot-layout mismatch.
+The stager now accepts the full `snapshot/` emitted by `runtime/recovery.py`
+directly, validates its known Mac helper files, and copies only the engine
+database/CA directory and master input to Linux. Mac binaries, manager,
+runtime settings and enrollment sidecars stay out of the destination. The
+synthetic case was updated and repeated once to verify this exact handoff.
+
 The launch wrapper refuses missing restored files and an absent/incomplete or
 local-only staging gate before invoking upstream. It clears only copied PID
 process markers at container launch to avoid Mac/container PID collisions.
@@ -41,13 +48,15 @@ Run exactly one synthetic offline preservation case from the repository root:
 python3 deploy/agent-vault/test-stage-snapshot.py
 ```
 
-It constructs a disposable database with 253 synthetic username/password pairs,
-13 older fields, a wrapped-master-shaped record, owner row and synthetic CA
+It constructs the full recovery snapshot layout with a disposable database,
+253 synthetic username/password pairs, 13 older fields, a wrapped-master-shaped
+record, owner row and synthetic CA
 bytes. It invokes the real staging CLI with `--ownership current-user`, checks
 253/506/519, compares every copied file byte-for-byte, confirms source bytes,
 private modes and current ownership, confirms the nonactivatable marker, then
 checks that retrying the same destination refuses overwrite. It launches no
-engine and makes no network requests. Synthetic bytes do not establish a real
+engine or network requests. It also verifies exclusion of the Mac helpers and
+enrollment sidecars. Synthetic bytes do not establish a real
 master unlock, valid CA or full upstream-schema migration.
 
 Static verification commands:
@@ -64,6 +73,11 @@ compilation, shell syntax, Compose configuration, whitespace checks and scoped
 Gitleaks scans passed.
 The pinned original upstream checkout was clean at
 `d5836ec3bb2315de38043d742ae5daca11a4944a` and remained untouched.
+
+During manager assembly, the real recovery snapshot's private-file permissions
+and database metadata also passed the stager's input checks at 253/506/519.
+This read-only compatibility check created no staging destination, transferred
+no data and did not read credential field values or attempt unlock.
 
 Container build and runtime acceptance are NOT verified. Docker Compose 5.3.1
 is installed, but `docker info` reports the absent Colima socket. No Docker or

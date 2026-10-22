@@ -26,6 +26,16 @@ class SyntheticMigration(unittest.TestCase):
             # Deliberately synthetic bytes, never used to unlock or run an engine.
             for name in ('ca.crt.pem', 'ca.key.enc'):
                 (state / 'ca' / name).write_bytes(os.urandom(128))
+            # Match the actual recovery helper's full snapshot contract. Mac
+            # helpers/enrollment sidecars must be accepted but excluded from Linux.
+            (snapshot / 'bin').mkdir(mode=0o700)
+            excluded = ('bin/agent-vault', 'bin/manage.py', 'runtime.json',
+                        'runtime/control.json', 'runtime/owner-login.json')
+            for name in excluded:
+                path = snapshot / name
+                path.write_bytes(b'synthetic excluded recovery file\n')
+                if name.startswith('bin/'):
+                    path.chmod(0o700)
             db_path = state / 'agent-vault.db'
             with sqlite3.connect(db_path) as db:
                 db.executescript('''
@@ -69,6 +79,9 @@ class SyntheticMigration(unittest.TestCase):
             self.assertTrue(receipt['byte_preserved'])
             self.assertFalse(receipt['unlocked'])
             for relative, digest in source_bytes.items():
+                if relative.as_posix() in excluded:
+                    self.assertEqual(hashlib.sha256((snapshot / relative).read_bytes()).digest(), digest)
+                    continue
                 target = destination / ('private/master-password' if relative.parts[0] == 'keys'
                                         else str(Path('data') / relative.relative_to('runtime')))
                 self.assertEqual(hashlib.sha256(target.read_bytes()).digest(), digest)
@@ -76,6 +89,10 @@ class SyntheticMigration(unittest.TestCase):
                 self.assertEqual(target.stat().st_mode & 0o777, 0o600)
                 self.assertEqual(target.stat().st_uid, os.geteuid())
                 self.assertEqual(target.stat().st_gid, os.getegid())
+            self.assertFalse((destination / 'data/control.json').exists())
+            self.assertFalse((destination / 'data/owner-login.json').exists())
+            self.assertFalse((destination / 'bin').exists())
+            self.assertFalse((destination / 'runtime.json').exists())
             for path in destination.rglob('*'):
                 if path.is_dir():
                     self.assertEqual(path.stat().st_mode & 0o777, 0o700)
