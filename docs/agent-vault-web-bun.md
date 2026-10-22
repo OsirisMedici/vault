@@ -4,6 +4,8 @@ Vault's web tooling uses Bun **1.4.4**, the reduced OSS web export at
 `d2a095eb800fe80a9bc524579b974796eae51994`, and web version `2026.7.0`.
 It prepares an isolated candidate, installs its frozen dependencies without
 lifecycle scripts, then compiles the OSS app through Webpack's public API.
+Bun owns installation and orchestration. The full Angular compiler has a
+documented Node **26.12.0** runtime exception on this 8 GiB Mac.
 It does not build desktop, alter auth/crypto dependencies, deploy, start services,
 replace installed apps, or touch private configuration.
 
@@ -25,8 +27,9 @@ The first command calls the existing `prepare-agent-web.py` without modifying
 that script or its UI patches. It then applies the tooling transformation to the
 new copy. The second runs the equivalent of
 `bun install --frozen-lockfile --ignore-scripts --prefer-offline --network-concurrency=8` in that candidate, checks
-installed root versions, and builds. All runner and compiler code runs under
-Bun. There is no Node or npm fallback. Output is
+installed root versions, and builds. The Bun runner explicitly requires the
+reviewed Node version for its compiler child with a 4096 MiB old-space bound.
+There is no npm command or automatic fallback. Output is
 `.cache/agent-web-bun/apps/web/build`. Existing source preparation owns UI patches
 and branding assets; this tooling adds no new UI or asset changes.
 
@@ -40,9 +43,14 @@ install at the previous default saturated this Mac's network during integration;
 the pinned cache preference avoids downloading already available packages.
 The release runner disables optional external JavaScript source maps. A measured
 full build with upstream production maps reached an 8.5 GiB peak footprint on
-this 8 GiB Mac while minifying. Production minification and Angular optimization
+this 8 GiB Mac during final packaging. Production minification and Angular optimization
 remain enabled; this removes debug artifacts rather than changing dependency
-versions or authentication code.
+versions or authentication code. Disabling maps alone still measured 7.5 GiB
+and remained slow. The complete compiler therefore uses Node through the owned
+`compile-agent-web-node.mjs` entrypoint. Bun remains the package manager, fixture
+runner and runtime for the bridge and trusted host. The small Bun compiler
+fixture below demonstrates the CLI fix; it does not prove that the complete
+Angular graph is suitable for Bun's runtime on this host.
 Repeat builds reuse the candidate's installed dependencies with another frozen
 install check. This is repeatable dependency/tooling preparation, not a claim
 that every emitted file is byte-identical across hosts.

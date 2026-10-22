@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
-// Owned Bun-only runner for the pinned reduced OSS web export. No webpack-cli.
+// Bun-managed pinned web build with a documented Angular compiler exception.
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(import.meta.dir, '..');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tools = join(root, 'tooling/agent-web');
 const pin = JSON.parse(readFileSync(join(tools, 'pin.json'), 'utf8'));
 const json = path => JSON.parse(readFileSync(path, 'utf8'));
@@ -160,12 +161,29 @@ async function main() {
   process.env.NODE_ENV = 'production';
   process.env.LOGGING = 'false';
   process.env.CACHE_TAG = `vault-agent-${sha(JSON.stringify(verified.receipt)).slice(0, 16)}`;
-  process.chdir(join(verified.candidate, 'apps/web'));
-  const require = createRequire(join(verified.candidate, 'package.json'));
+  // A documented compiler-only exception for the complete Angular graph.
+  // Bun still owns dependency installation, pins, orchestration and new apps.
+  const node = Bun.which('node');
+  assert(node, 'Node 26.12.0 is required for the documented Angular compiler exception');
+  const version = Bun.spawnSync([node, '--version'], { stdout: 'pipe', stderr: 'pipe' });
+  assert(version.exitCode === 0 && new TextDecoder().decode(version.stdout).trim() === 'v26.12.0',
+    'Angular compiler requires the reviewed Node 26.12.0; no runtime fallback was attempted');
+  const build = Bun.spawn([node, '--max-old-space-size=4096', join(root, 'scripts/compile-agent-web-node.mjs'), verified.candidate], {
+    cwd: root, env: process.env, stdout: 'inherit', stderr: 'inherit',
+  });
+  assert(await build.exited === 0, 'Angular compiler failed; no fallback or dependency update was attempted');
+}
+
+export async function buildWeb(candidate) {
+  assert(process.versions.node === '26.12.0' && !process.versions.bun, 'Compiler exception requires Node 26.12.0');
+  candidate = realpathSync(candidate);
+  assert(within(join(root, '.cache'), candidate), 'Compiler candidate must remain in this worktree');
+  process.chdir(join(candidate, 'apps/web'));
+  const require = createRequire(join(candidate, 'package.json'));
   const webpackPath = require.resolve('webpack');
-  assert(within(join(verified.candidate, 'node_modules'), realpathSync(webpackPath)), 'Webpack must resolve from candidate node_modules');
+  assert(within(join(candidate, 'node_modules'), realpathSync(webpackPath)), 'Webpack must resolve from candidate node_modules');
   const webpack = require(webpackPath);
-  const config = require(join(verified.candidate, 'apps/web/webpack.config.js'))();
+  const config = require(join(candidate, 'apps/web/webpack.config.js'))();
   const minimizers = config.optimization?.minimizer;
   assert(minimizers?.length === 1 && minimizers[0]?.constructor.name === 'TerserPlugin', 'Unexpected minifier; review resource settings');
   minimizers[0].options.parallel = 1;
@@ -173,16 +191,18 @@ async function main() {
   // Release maps are optional debug artifacts; keep production optimization.
   config.devtool = false;
   let previousStage = '';
+  let previousDetail = '';
   let previousLog = 0;
   config.plugins.push(new webpack.ProgressPlugin((fraction, stage, detail) => {
-    if (stage !== previousStage || Date.now() - previousLog >= 15000) {
+    if (stage !== previousStage || detail !== previousDetail || Date.now() - previousLog >= 15000) {
       previousStage = stage;
+      previousDetail = detail;
       previousLog = Date.now();
       console.log(`Web build ${Math.floor(fraction * 100)}%: ${stage}${detail ? ' / ' + detail : ''}`);
     }
   }));
-  assert(within(verified.candidate, config.output.path), 'Webpack output must remain inside the candidate');
-  console.log(`Building OSS web ${pin.webVersion} with Bun ${pin.bunVersion} and Webpack ${pin.criticalVersions.webpack} compiler API`);
+  assert(within(candidate, config.output.path), 'Webpack output must remain inside the candidate');
+  console.log(`Building OSS web ${pin.webVersion}: Bun-managed, Node ${process.versions.node} compiler exception, Webpack ${pin.criticalVersions.webpack}`);
   const stats = await runCompiler(webpack, config);
   console.log(stats.toString({ all: false, timings: true, assets: true, warnings: true }));
 }
