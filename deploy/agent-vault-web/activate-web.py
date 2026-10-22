@@ -34,7 +34,7 @@ def write(path, data):
         os.fsync(stream.fileno())
 
 
-def main(image):
+def main(image, expected_image, expected_image_id, verified_backup):
     os.umask(0o077)
     changed = False
     original = None
@@ -42,7 +42,11 @@ def main(image):
     try:
         if os.geteuid() != 0 or not re.fullmatch(r'osiris-vault:0\.2\.0-agent-web-[a-f0-9]{7,40}', image):
             raise ValueError()
-        if COMPOSE.is_symlink() or not BACKUP.is_file() or BACKUP.stat().st_size < 1024:
+        backup_path = Path(verified_backup)
+        if (not re.fullmatch(r'osiris-vault:[A-Za-z0-9_.-]+', expected_image) or
+                not re.fullmatch(r'sha256:[a-f0-9]{64}', expected_image_id) or
+                backup_path.parent != BACKUP.parent or backup_path.is_symlink() or
+                not backup_path.is_file() or backup_path.stat().st_size < 1024 or COMPOSE.is_symlink()):
             raise ValueError()
         base, candidate = inspect(BASE), inspect(image)
         if base['Id'] != BASE_ID:
@@ -55,12 +59,12 @@ def main(image):
                 raise ValueError()
         original = COMPOSE.read_bytes()
         before = config(COMPOSE)
-        if set(before['services']) != {'vaultwarden'} or before['services']['vaultwarden']['image'] != BASE:
+        if set(before['services']) != {'vaultwarden'} or before['services']['vaultwarden']['image'] != expected_image:
             raise ValueError()
         running = json.loads(run('docker', 'inspect', 'osiris-vaultwarden'))[0]
-        if running['Image'] != BASE_ID or running['State'].get('Health', {}).get('Status') != 'healthy':
+        if running['Image'] != expected_image_id or inspect(expected_image)['Id'] != expected_image_id or running['State'].get('Health', {}).get('Status') != 'healthy':
             raise ValueError()
-        pattern = rb'(?m)^(\s*image:\s*)' + re.escape(BASE.encode()) + rb'(\s*)$'
+        pattern = rb'(?m)^(\s*image:\s*)' + re.escape(expected_image.encode()) + rb'(\s*)$'
         data, count = re.subn(pattern, lambda m: m[1] + image.encode() + m[2], original)
         if count != 1:
             raise ValueError()
@@ -113,4 +117,9 @@ def main(image):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('image')
-    raise SystemExit(main(parser.parse_args().image))
+    parser.add_argument('--expected-image', required=True)
+    parser.add_argument('--expected-image-id', required=True)
+    parser.add_argument('--verified-backup', required=True,
+                        help='Fresh encrypted backup already checked by the release owner')
+    args = parser.parse_args()
+    raise SystemExit(main(args.image, args.expected_image, args.expected_image_id, args.verified_backup))
