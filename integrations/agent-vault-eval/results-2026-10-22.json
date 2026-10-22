@@ -1,0 +1,153 @@
+{
+  "revision": "d5836ec3bb2315de38043d742ae5daca11a4944a",
+  "go": "go version go1.26.10 darwin/arm64",
+  "dummy_only": true,
+  "runs": [
+    {
+      "name": "upstream",
+      "exit_code": 0,
+      "counts": {
+        "pass": 689,
+        "fail": 0,
+        "skip": 2
+      },
+      "packages": [
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/broker",
+          "Elapsed": 0.968
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/mitm",
+          "Elapsed": 3.312
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/crypto",
+          "Elapsed": 2.074
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/auth",
+          "Elapsed": 2.188
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Elapsed": 4.59
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/store",
+          "Elapsed": 24.549
+        }
+      ],
+      "failed_or_skipped_tests": [
+        {
+          "Action": "skip",
+          "Package": "github.com/Infisical/agent-vault/internal/mitm",
+          "Test": "TestMITMWebSocketXAITTSIntegration",
+          "Elapsed": 0
+        },
+        {
+          "Action": "skip",
+          "Package": "github.com/Infisical/agent-vault/internal/mitm",
+          "Test": "TestMITMWebSocketOpenAIRealtimeIntegration",
+          "Elapsed": 0
+        }
+      ]
+    },
+    {
+      "name": "vault_evaluation",
+      "exit_code": 0,
+      "counts": {
+        "pass": 12,
+        "fail": 0,
+        "skip": 0
+      },
+      "packages": [
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Elapsed": 1.023
+        }
+      ],
+      "failed_or_skipped_tests": [],
+      "checks": [
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/credential_injection",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/default_unmatched_requests_pass_through",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/explicit_deny_blocks_unmatched_path",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/proxy_role_cannot_reveal_or_administer",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/cross_vault_access_denied",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/discovery_exposes_names_without_values",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/stored_credential_is_ciphertext",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/method_is_not_an_action_permission",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/echoing_upstream_can_return_injected_secret",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/structured_logs_omit_dummy_credential",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation/revocation_stops_proxy_use",
+          "Elapsed": 0
+        },
+        {
+          "Action": "pass",
+          "Package": "github.com/Infisical/agent-vault/internal/server",
+          "Test": "TestVaultEvaluation",
+          "Elapsed": 0.13
+        }
+      ]
+    }
+  ]
+}

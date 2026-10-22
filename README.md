@@ -14,6 +14,10 @@ agent permissions and protected browser credential filling are separate work.
 Official Bitwarden desktop, mobile and extension clients retain their branding
 and can keep using the same server.
 
+An isolated [Agent Vault evaluation](docs/agent-vault-evaluation-2026-10-22.md)
+tests API credential brokering with dummy data. It is a research and test
+artifact; no Agent Vault runtime integration is enabled.
+
 ## Source
 
 ```sh

@@ -22,6 +22,21 @@ Team workspaces, sharing redesign, unrelated desktop integrations and universal 
 
 ## Ownership
 
+Current coordination supersedes the historical active-owner list below. Osiris
+requested consolidation of all seven active Vault sidebar conversations into
+the current Agent Vault evaluation conversation. The other six were read and
+settled through T3 tools. Their handoffs and source remain preserved. Further
+coordination is here; no historical worker should be restarted automatically.
+The latest private continuation is `.local/context/consolidated-2026-10-22.md`.
+
+Current live verification: the Vault MCP is callable and returns
+`native_adapter_required`. T3's app browser opens GoDaddy's sign-in form, but
+protected account lookup and website login are blocked by the missing native
+adapter. Osiris permits selection of any five saved accounts for app-browser
+login tests once protected lookup works. No real login completed in this check.
+The Infisical Agent Vault trial used dummy API credentials and supplies no
+accepted website-login adapter.
+
 Active implementation chats:
 
 - Issue 01: `mcp:55b05fc7-4520-4bd8-acb5-282aec0eb039`, Vault 01 - Persistent MCP and browser login.
