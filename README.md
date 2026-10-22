@@ -12,6 +12,11 @@ agent permissions and protected browser credential filling are separate work.
 Official Bitwarden desktop, mobile and extension clients retain their branding
 and can keep using the same server.
 
+An isolated [team/agent policy foundation](docs/team-agent-access-implementation.md)
+now rehearses scoped grants, approvals, expiry, revocation and audit using
+harmless fixtures. It has no authentication or broker adapter; real execution
+is denied. It is not included in the deployed image or desktop candidate.
+
 ## Source
 
 ```sh
