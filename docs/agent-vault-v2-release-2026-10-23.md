@@ -16,7 +16,20 @@ opt-in and dormant; live sync remains dormant pending a fresh owner export,
 source verification, matching baseline and exclusive access. Existing 253
 accounts, 506 imported fields and 519 total fields must remain intact.
 
-## Fast-plan owner and pending case 10
+## Fresh-chat handoff requested
+
+On 23 October 2026, Osiris superseded the three-chat fast-plan continuation:
+publish the relevant source/evidence, prepare the best existing capabilities and
+recommended improvements, and continue Agent Vault in one new ordinary chat.
+The [product and restart handoff](plans/agent-vault-product-handoff-2026-10-23.md)
+records the source inventory, priorities, acceptance gates and private-access
+dependency. This acceptance chat stops runtime/browser work and further ledger
+mutation after that handoff. The previously settled chats stay settled.
+Case 10 remains blocked; no login, runtime readiness, deployment or acceptance
+result changed. The new chat must verify actual private readiness before any
+dependent login work. The fast-plan section below is the historical routing.
+
+## Previous fast-plan owner and pending case 10
 
 On 23 October 2026 IST (22 October UTC), the user explicitly authorized exactly
 three ordinary top-level Vault chats with serial mutation ownership: phase 1
