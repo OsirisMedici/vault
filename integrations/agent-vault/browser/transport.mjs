@@ -9,7 +9,19 @@ export function unwrap(result) {
 }
 // All arguments are fixed tool names/nonsecret DOM controls produced by the driver.
 // Endpoint/authorization are inherited privately; never copy them into config or argv.
-export function createT3CallTool({executable = process.env.T3_ACP_MCP_NODE || 't3',entrypoint = process.env.T3_ACP_MCP_ENTRYPOINT,env = process.env} = {}) {
+// Presence is configuration metadata, not proof of a callable host or tab access.
+export function getT3TransportReadiness({env = process.env} = {}) {
+  const environmentPresence = Object.fromEntries([
+    'T3_ACP_MCP_ENDPOINT','T3_ACP_MCP_AUTHORIZATION',
+    'T3_ACP_MCP_NODE','T3_ACP_MCP_ENTRYPOINT',
+  ].map(key => [key,Boolean(env[key])]));
+  return {
+    transport:'acp-mcp-call',
+    configured:environmentPresence.T3_ACP_MCP_ENDPOINT && environmentPresence.T3_ACP_MCP_AUTHORIZATION,
+    environmentPresence,
+  };
+}
+export function createT3CallTool({env = process.env,executable = env.T3_ACP_MCP_NODE || 't3',entrypoint = env.T3_ACP_MCP_ENTRYPOINT} = {}) {
   return async (name,args) => {
     if (!allowed.has(name) || !env.T3_ACP_MCP_ENDPOINT || !env.T3_ACP_MCP_AUTHORIZATION) throw new Error('host_transport_unavailable');
     const argv = [...(entrypoint ? [entrypoint] : []),'acp-mcp-call',name,JSON.stringify(args)];
