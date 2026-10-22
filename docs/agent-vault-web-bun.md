@@ -38,6 +38,11 @@ Compiler errors fail the command, and the runner closes the compiler afterward.
 It prints build stages and caps registry concurrency at eight requests. A fresh
 install at the previous default saturated this Mac's network during integration;
 the pinned cache preference avoids downloading already available packages.
+The release runner disables optional external JavaScript source maps. A measured
+full build with upstream production maps reached an 8.5 GiB peak footprint on
+this 8 GiB Mac while minifying. Production minification and Angular optimization
+remain enabled; this removes debug artifacts rather than changing dependency
+versions or authentication code.
 Repeat builds reuse the candidate's installed dependencies with another frozen
 install check. This is repeatable dependency/tooling preparation, not a claim
 that every emitted file is byte-identical across hosts.

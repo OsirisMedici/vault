@@ -169,11 +169,16 @@ async function main() {
   const minimizers = config.optimization?.minimizer;
   assert(minimizers?.length === 1 && minimizers[0]?.constructor.name === 'TerserPlugin', 'Unexpected minifier; review resource settings');
   minimizers[0].options.parallel = 1;
+  // The full production source-map/minification graph exceeds this 8 GiB Mac.
+  // Release maps are optional debug artifacts; keep production optimization.
+  config.devtool = false;
   let previousStage = '';
-  config.plugins.push(new webpack.ProgressPlugin((fraction, stage) => {
-    if (stage !== previousStage) {
+  let previousLog = 0;
+  config.plugins.push(new webpack.ProgressPlugin((fraction, stage, detail) => {
+    if (stage !== previousStage || Date.now() - previousLog >= 15000) {
       previousStage = stage;
-      console.log(`Web build ${Math.floor(fraction * 100)}%: ${stage}`);
+      previousLog = Date.now();
+      console.log(`Web build ${Math.floor(fraction * 100)}%: ${stage}${detail ? ' / ' + detail : ''}`);
     }
   }));
   assert(within(verified.candidate, config.output.path), 'Webpack output must remain inside the candidate');
