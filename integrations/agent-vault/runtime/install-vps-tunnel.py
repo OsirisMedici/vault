@@ -62,8 +62,17 @@ def main():
             with os.fdopen(fd, 'wb') as stream:
                 plistlib.dump(data, stream)
         if not loaded:
-            subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(PLIST)], check=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # launchd can still be releasing the old label just after bootout.
+            # Retry this owned bootstrap briefly instead of leaving the tunnel down.
+            for _ in range(10):
+                attempt = subprocess.run(['/bin/launchctl', 'bootstrap', domain, str(PLIST)],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if attempt.returncode == 0:
+                    loaded = True
+                    break
+                time.sleep(.3)
+            if not loaded:
+                raise RuntimeError()
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         ready = False
         for _ in range(15):

@@ -49,7 +49,7 @@ test('synthetic owner isolation, strict metadata and queued trusted-worker compl
   };
   const call = async (path, { token = 'owner-a', method = 'GET', value, origin = config.vaultOrigin, raw } = {}) => {
     const headers = { ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
-      ...(origin === null ? {} : { Origin: origin }), ...(value === undefined && raw === undefined ? {} : { 'Content-Type': 'application/json' }) };
+      ...(origin === null ? {} : { Origin: origin }), ...(value === undefined && raw === undefined ? {} : { 'Content-Type': 'application/json; charset=utf-8' }) };
     const response = await bridge.fetch(new Request('https://bridge.example.invalid' + path, { method, headers,
       ...(value === undefined && raw === undefined ? {} : { body: raw ?? JSON.stringify(value) }) }));
     expect(response.headers.get('cache-control')).toBe('no-store');

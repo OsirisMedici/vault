@@ -24,7 +24,7 @@ bun scripts/build-agent-web-bun.mjs .cache/agent-web-bun
 The first command calls the existing `prepare-agent-web.py` without modifying
 that script or its UI patches. It then applies the tooling transformation to the
 new copy. The second runs the equivalent of
-`bun install --frozen-lockfile --ignore-scripts` in that candidate, checks
+`bun install --frozen-lockfile --ignore-scripts --prefer-offline --network-concurrency=8` in that candidate, checks
 installed root versions, and builds. All runner and compiler code runs under
 Bun. There is no Node or npm fallback. Output is
 `.cache/agent-web-bun/apps/web/build`. Existing source preparation owns UI patches
@@ -35,6 +35,9 @@ stable `CACHE_TAG` derived from the preparation receipt. It uses the upstream OS
 Webpack factory and limits its existing Terser instance to one worker in memory.
 It does not patch installed dependencies or persist Webpack configuration edits.
 Compiler errors fail the command, and the runner closes the compiler afterward.
+It prints build stages and caps registry concurrency at eight requests. A fresh
+install at the previous default saturated this Mac's network during integration;
+the pinned cache preference avoids downloading already available packages.
 Repeat builds reuse the candidate's installed dependencies with another frozen
 install check. This is repeatable dependency/tooling preparation, not a claim
 that every emitted file is byte-identical across hosts.

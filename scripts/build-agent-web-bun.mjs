@@ -145,7 +145,7 @@ async function main() {
     console.log(`Static lock verified: ${verified.retained} retained registry records match upstream; ${verified.omitted} audited omissions`);
     return;
   }
-  const installArgs = ['install', '--frozen-lockfile', '--ignore-scripts'];
+  const installArgs = ['install', '--frozen-lockfile', '--ignore-scripts', '--prefer-offline', '--network-concurrency=8'];
   if (mode === '--lock-check') installArgs.push('--lockfile-only');
   const result = Bun.spawnSync([process.execPath, ...installArgs], {
     cwd: verified.candidate, env: { ...process.env, NODE_ENV: 'development' }, stdout: 'inherit', stderr: 'inherit',
@@ -169,6 +169,13 @@ async function main() {
   const minimizers = config.optimization?.minimizer;
   assert(minimizers?.length === 1 && minimizers[0]?.constructor.name === 'TerserPlugin', 'Unexpected minifier; review resource settings');
   minimizers[0].options.parallel = 1;
+  let previousStage = '';
+  config.plugins.push(new webpack.ProgressPlugin((fraction, stage) => {
+    if (stage !== previousStage) {
+      previousStage = stage;
+      console.log(`Web build ${Math.floor(fraction * 100)}%: ${stage}`);
+    }
+  }));
   assert(within(verified.candidate, config.output.path), 'Webpack output must remain inside the candidate');
   console.log(`Building OSS web ${pin.webVersion} with Bun ${pin.bunVersion} and Webpack ${pin.criticalVersions.webpack} compiler API`);
   const stats = await runCompiler(webpack, config);
