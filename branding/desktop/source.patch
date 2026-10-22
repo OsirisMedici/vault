@@ -1,3 +1,13 @@
+--- a/apps/desktop/desktop_native/objc/build.rs
++++ b/apps/desktop/desktop_native/objc/build.rs
+@@ -31,6 +31,7 @@ fn main() {
+     // Link required frameworks
+     println!("cargo:rustc-link-lib=framework=Foundation");
+     println!("cargo:rustc-link-lib=framework=AppKit");
++    println!("cargo:rustc-link-lib=framework=AuthenticationServices");
+ }
+ 
+ #[cfg(not(target_os = "macos"))]
 --- a/apps/desktop/src/entry.ts
 +++ b/apps/desktop/src/entry.ts
 @@ -1,57 +1,19 @@

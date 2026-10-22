@@ -10,6 +10,10 @@ macOS biometric and Keychain implementation is retained. Existing attribution,
 warnings, API formats, encryption, key derivation and vault synchronization remain
 upstream code. Some product copy and support links still identify upstream.
 
+The macOS native build explicitly links AuthenticationServices. Without this
+link, the N-API module fails to load with an unresolved ASCredentialIdentityStore
+symbol. This is a build fix; it does not enable the excluded AutoFill extension.
+
 This candidate has no reviewed release feed, Apple signing identity, notarization,
 browser extension integration, SSO callback integration, or runtime acceptance.
 Desktop Touch ID requires private sign-in, fresh enrollment and human verification.

@@ -161,9 +161,17 @@ browser proxy or build the Swift AutoFill provider. Do not use upstream's
 development launcher, which enables debugging flags. Do not launch with a real
 account until the reviewed signing and isolation checks pass.
 
-These compilation/packaging commands are the next build route, **not commands
-verified by this source-preparation run**. A complete Electron/Rust build,
-packaged launch, dependency/license inventory and signed release remain pending.
+The native module and all three production OSS webpack targets compiled on the
+M2 MacBook Air on 2026-10-22, and the app was packaged. Main, preload and renderer
+were built sequentially to limit memory use. The native build needs the explicit
+AuthenticationServices framework link now included in the source patch.
+
+The local ad hoc signature passes strict integrity verification but fails to
+launch with hardened runtime because macOS cannot establish matching team
+identities for the executable and framework. This is not a trusted release.
+Do not remove runtime protections or treat a successful compile as acceptance.
+See [the build report](desktop-build-2026-10-22.md) for verified results and the
+remaining signing and private runtime checks.
 
 ## Acceptance and handoff
 

@@ -6,8 +6,10 @@ name while retaining the upstream password-manager implementation.
 
 The deployed web release changes appearance and branding. This repository is
 also the durable home for further Vault app work. A pinned macOS desktop source
-candidate is documented in [docs/desktop.md](docs/desktop.md); it has not been
-compiled, signed or accepted as a replacement app. Team sharing configuration,
+candidate is documented in [docs/desktop.md](docs/desktop.md). A MacBook arm64
+build now compiles, but its ad hoc signature does not satisfy hardened-runtime
+launch requirements. It is not accepted as a replacement app. See the
+[local build report](docs/desktop-build-2026-10-22.md). Team sharing configuration,
 agent permissions and protected browser credential filling are separate work.
 Official Bitwarden desktop, mobile and extension clients retain their branding
 and can keep using the same server.
