@@ -71,3 +71,46 @@ This initial private allowlist is for the existing owner. Team onboarding,
 other providers, live synchronization, native Touch ID and unattended browser
 execution are separate work. The accepted official Bitwarden desktop app is
 unchanged.
+
+## Live acceptance on 23 October 2026
+
+- Source/build tooling revision: `d6070d4` on `work/agent-vault-integrated`.
+- Full optimized OSS compile passed in 178,672 ms through the Bun-managed,
+  Node 26.12.0 compiler exception. No dependency versions were changed.
+- Image: `osiris-vault:0.2.0-agent-web-d6070d4`.
+- Image ID: `sha256:62e774610b5b2efdc0f4be172a2e618c12b3ebab429a0ac1e49c3ea5cf2ea990`.
+- Release/context: `/opt/osiris-vault-web-release-d6070d4/web-context`.
+- Private rollback Compose: `/opt/vaultwarden/compose.pre-agent-web-d6070d4.yaml`.
+- Public index matched the packaged index SHA-256
+  `61d54be6779748255bb079316a926a7f424fa8024620582bdfefcfc50584212c`.
+
+Activation verified the accepted server layers and configuration were inherited,
+and the parsed Compose configuration differed only in the Vault image. The new
+container became healthy. The existing data volume, server version and schema
+were preserved. The engine's read-only SQLite recheck passed, with 506 imported
+fields and 519 total fields unchanged.
+
+The owner privately unlocked the deployed client. Authenticated metadata and
+status requests returned 200, and the page displayed 253 imported accounts and
+two supported choices. The initial unselected sign-in control was disabled.
+Selecting the GoDial account and submitting once produced a queued request.
+The first request failed safely when its provider tab was unavailable, with no
+credential fill. Its failed state appeared in the UI. An explicit retry using a
+fresh owned tab completed in 55 supported browser tool calls. The trusted helper
+verified the exact selected account identity and completed the same web request
+as `signed_in`. The Vault page then displayed its verified terminal result.
+The helper exited, and a presence-only clipboard check confirmed it was empty.
+
+HTTPS `/alive` remained 200. Unauthenticated account metadata was 401, public
+worker claim was 404, `/admin` remained 404, and empty registration remained 403.
+The desktop Agent access screenshot showed the intended charcoal UI, matching
+Vault navigation and controls, with no framework overlay or relevant console
+errors. Final terminal-state evidence used scoped DOM inspection: a further
+saved snapshot returned `Preview automation snapshot timed out after 15000ms.`
+A requested narrow preset did not change the reported CSS width, so mobile
+layout acceptance is not claimed. Neither limitation blocked the verified
+desktop request flow.
+
+This is an accepted owner workflow in the existing web app, with the approved
+chat-assisted browser route. Team access, other providers, live synchronization,
+unattended external transport and a new signed desktop release remain excluded.

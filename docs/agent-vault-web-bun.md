@@ -138,9 +138,13 @@ It used the parent's installed public dependencies read-only and wrote only a
 temporary fixture in this worktree. Preparation and frozen lock validation
 passed locally. No Angular compile was started here while the parent compiled.
 
-The parent must cherry-pick this tooling commit, prepare a fresh candidate, and
-run the daily build command when its current compile has finished. A successful
-parent compile through its separate temporary API helper would support the
-approach, but does not verify this wrapper's complete Angular path. Full compile,
-rendered UI/authenticated acceptance, branding acceptance, and deployment remain
-the parent's work. See [the UI acceptance steps](agent-vault-web-ui.md).
+The initial worker handoff above did not verify the full Angular build. The
+integration owner subsequently completed the daily build with the documented
+Node compiler exception on 23 October 2026. Webpack completed in **178,672 ms**,
+including Angular type/template compilation and production optimization. The
+packager preserved all **29 JavaScript files** byte-for-byte. The resulting web
+image was deployed, and the authenticated Agent access page completed a real
+GoDial request through the VPS engine and trusted chat helper. See the
+[delivery record](agent-vault-web-delivery.md) for the exact image and boundaries.
+The full Bun-only compiler attempts were stopped due to their measured memory
+cost; they are not reported as successful builds.
