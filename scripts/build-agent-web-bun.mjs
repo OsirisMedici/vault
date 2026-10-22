@@ -58,6 +58,17 @@ export function verifyCandidate(input, installed = false) {
   assert(receipt.toolingVersion === 1 && receipt.sourceCommit === pin.sourceCommit &&
     receipt.bunVersion === pin.bunVersion && receipt.toolingPinSha256 === fileSha(join(tools, 'pin.json')),
   'Missing or stale tooling receipt; prepare a fresh candidate');
+  for (const [name, expected] of Object.entries(receipt.patchSha256 || {})) {
+    assert(['branding/web-source.patch', 'branding/agent-web/source.patch'].includes(name) &&
+      fileSha(join(root, name)) === expected, 'Source patch drift; prepare a fresh candidate');
+  }
+  for (const name of ['agent-vault.component.ts', 'agent-vault.component.html', 'agent-vault.service.ts']) {
+    const expected = receipt.componentSha256?.[name];
+    assert(expected && fileSha(join(candidate, 'apps/web/src/app/agent-vault', name)) === expected &&
+      fileSha(join(root, 'branding/agent-web/app', name)) === expected,
+    'Feature source drift; prepare a fresh candidate');
+  }
+  assert(Object.keys(receipt.patchSha256 || {}).length === 2, 'Missing source patch receipt');
   assert(json(join(root, 'upstream.lock.json')).web.commit === pin.sourceCommit, 'Upstream pin changed; review toolchain');
   for (const name of ['package.json', 'package-lock.json', 'vault-agent-web-upstream-package.json',
     'vault-agent-web-upstream-package-lock.json', 'bun.lock', 'bunfig.toml']) {
@@ -146,6 +157,15 @@ async function main() {
     console.log(`Static lock verified: ${verified.retained} retained registry records match upstream; ${verified.omitted} audited omissions`);
     return;
   }
+  // Fail before a heavyweight install when the required compiler is unavailable.
+  let node;
+  if (mode === '--build') {
+    node = Bun.which('node');
+    assert(node, 'Node 26.12.0 is required for the documented Angular compiler exception');
+    const version = Bun.spawnSync([node, '--version'], { stdout: 'pipe', stderr: 'pipe' });
+    assert(version.exitCode === 0 && new TextDecoder().decode(version.stdout).trim() === 'v26.12.0',
+      'Angular compiler requires the reviewed Node 26.12.0; no runtime fallback was attempted');
+  }
   const installArgs = ['install', '--frozen-lockfile', '--ignore-scripts', '--prefer-offline', '--network-concurrency=8'];
   if (mode === '--lock-check') installArgs.push('--lockfile-only');
   const result = Bun.spawnSync([process.execPath, ...installArgs], {
@@ -163,11 +183,6 @@ async function main() {
   process.env.CACHE_TAG = `vault-agent-${sha(JSON.stringify(verified.receipt)).slice(0, 16)}`;
   // A documented compiler-only exception for the complete Angular graph.
   // Bun still owns dependency installation, pins, orchestration and new apps.
-  const node = Bun.which('node');
-  assert(node, 'Node 26.12.0 is required for the documented Angular compiler exception');
-  const version = Bun.spawnSync([node, '--version'], { stdout: 'pipe', stderr: 'pipe' });
-  assert(version.exitCode === 0 && new TextDecoder().decode(version.stdout).trim() === 'v26.12.0',
-    'Angular compiler requires the reviewed Node 26.12.0; no runtime fallback was attempted');
   const build = Bun.spawn([node, '--max-old-space-size=4096', join(root, 'scripts/compile-agent-web-node.mjs'), verified.candidate], {
     cwd: root, env: process.env, stdout: 'inherit', stderr: 'inherit',
   });
