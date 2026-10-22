@@ -16,7 +16,75 @@ opt-in and dormant; live sync remains dormant pending a fresh owner export,
 source verification, matching baseline and exclusive access. Existing 253
 accounts, 506 imported fields and 519 total fields must remain intact.
 
-## Current Raven release owner and external blockers
+## Fast-plan owner and pending case 10
+
+On 23 October 2026 IST (22 October UTC), the user explicitly authorized exactly
+three ordinary top-level Vault chats with serial mutation ownership: phase 1
+private access mcp:ad1ade75-b290-43fe-9590-5ec77af69b31, phase 2 runtime setup
+mcp:a2161692-a2e1-4bf9-90f9-ea1095f97994, and phase 3 final login acceptance
+mcp:14b3d523-1f7a-4451-89ee-5d51446e8366. Phase 3 alone owns this ledger and
+final release handoff. T3 reports the prior Raven owner
+mcp:99d9d867-817b-4802-804e-5bd15c3e9e08 completed and settled. Its tab must
+not be operated by the new owner; no further chats or workers are authorized.
+
+Phase 3 independently verified pranshis-MacBook-Air.local, arm64, clean HEAD
+c608434e1d941ee74ccd2b2b0c43c11df81e9b79, origin
+https://github.com/OsirisMedici/vault and branch work/vault-fast-acceptance.
+Shell cwd and T3 binding both resolve to
+/Users/pranshisharma/.t3/worktrees/Vault/work-vault-fast-acceptance in registered
+Vault project mcp:c40d6377-2cc6-489e-8f61-e98f2c2b9b7f. The provider/model/settings
+remain codex_native, gpt-6.1-sol, reasoningEffort high, serviceTier default.
+The indexed upstream/web gitlink remains d2a095eb800fe80a9bc524579b974796eae51994.
+The ledger, release boundaries and existing guarded chat-session, chat-relay,
+driver and web-request source were read; no source implementation changed.
+
+Phase 1's informational dependency-blocked receipt reports Raven's Tailscale
+self raven.tailf4bdfc.ts.net and Osiris peer online, but no authenticated private
+access route. Its bounded strict-host-checking SSH probes returned:
+
+- hostinger-osiris: exit 255, "ssh: Could not resolve hostname hostinger-osiris:
+  nodename nor servname provided, or not known".
+- osirismedici@osiris.tailf4bdfc.ts.net: exit 255, "ssh: connect to host
+  osiris.tailf4bdfc.ts.net port 22: Operation timed out". This newer observation
+  supersedes the earlier Connection refused observation, without clearing access.
+
+The same receipt reports loopback ports 19431 and 19433 not connectable,
+integration-v1 and the managed tunnel plist absent, and no callable private
+provisioning interface. These are attributed phase 1 observations, not repeated
+phase 3 probes. No private runtime content was read or tunnel/runtime started;
+there is no new runtime lifetime. Standalone ACP is not a prerequisite.
+
+The one pending owner action is to restore Raven's already-approved authenticated
+private SSH route to the existing VPS as hostinger-osiris through trusted operator
+setup with verified host trust, then report ready in phase 1. Credentials and
+capabilities must stay out of messages. No new grants/users/SSH enrollment,
+arbitrary key copying, public listener or T3 changes are authorized. Phase 2 may
+configure managed loopback-only forwarding of the existing engine 19431 and
+worker 19433 only after a verified access-success receipt. Phase 3 keeps its
+runtime/browser/login gates closed until phase 2 hands off verified engine and
+private worker readiness and runtime ownership.
+
+Acceptance remains nine of ten aggregate cases recorded passed, with case 10
+blocked; this is a test count, not product-readiness percentage. No browser tab,
+request, credential fill or website login was started in phase 3 preparation.
+The deployed f561d18 artifact and existing VPS engine remain frozen. After the
+verified phase 2 receipt, case 10 alone will require:
+
+1. Inspect current preview profiles and open fresh owned Vault/GoDial tabs;
+   validate a benign input path before any needed private owner unlock. Stop for
+   MFA, CAPTCHA or recovery.
+2. Explicitly select GoDial businessabhish@gmail.com and create a new UI request;
+   cancelled request bfef78c8-ef66-4c04-913e-35d00bd1dd5b cannot be reused.
+3. Bind the exact current thread/tab/request through the existing guarded chat
+   relay, verify exact GoDial identity and matching UI signed_in with
+   identityVerified true, then verify clipboard compare-and-clear and close the
+   temporary helper. Capture and inspect nonsecret saved screenshots.
+4. Record actual results and tunnel lifetime here. A dashboard, queue or
+   historical verified entry cannot pass this case. Success is an owner/chat-
+   assisted login; team launch, live sync and unattended capability remain out
+   of scope. No repetition of cases 1–9, rebuild or redeployment is authorized.
+
+## Previous Raven release owner and external blockers
 
 Verified on 23 October 2026 IST (22 October UTC): the sole replacement owner is
 top-level thread mcp:99d9d867-817b-4802-804e-5bd15c3e9e08, titled
