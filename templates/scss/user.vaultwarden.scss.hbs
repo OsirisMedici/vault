@@ -1,0 +1,333 @@
+/* Keyflow charcoal theme. GPL-3.0-only.
+ * Dark semantic mappings derived from the pinned GPLv3 Bitwarden-compatible client.
+ * Applied to both upstream theme choices so the Keyflow web release is always charcoal.
+ * No selectors here implement authorization or hide authentication controls.
+ */
+:root, :root.theme_light, :root.theme_dark {
+
+  --color-transparent-hover: rgb(255 255 255 / 0.02);
+  --color-shadow: 0 0 0;
+
+  --color-background: 32 39 51;
+  --color-background-alt: 18 26 39;
+  --color-background-alt2: 47 52 61;
+  --color-background-alt3: 48 57 70;
+  --color-background-alt4: 18 26 39;
+
+  --color-primary-100: 29 46 99;
+  --color-primary-300: 26 65 172;
+  --color-primary-600: 101 171 255;
+  --color-primary-700: 170 195 239;
+
+  --color-secondary-100: 48 57 70;
+  --color-secondary-300: 82 91 106;
+  --color-secondary-500: 121 128 142;
+  --color-secondary-600: 143 152 166;
+  --color-secondary-700: 158 167 181;
+
+  --color-success-100: 8 81 15;
+  --color-success-600: 107 241 120;
+  --color-success-700: 213 243 216;
+
+  --color-danger-100: 149 27 42;
+  --color-danger-600: 255 78 99;
+  --color-danger-700: 255 236 239;
+
+  --color-warning-100: 142 64 0;
+  --color-warning-600: 255 191 0;
+  --color-warning-700: 255 244 212;
+
+  --color-info-100: 13 36 123;
+  --color-info-600: 121 161 233;
+  --color-info-700: 219 229 246;
+
+  --color-notification-100: 117 37 83;
+  --color-notification-600: 255 143 208;
+
+  --color-text-main: 243 246 249;
+  --color-text-muted: 136 152 181;
+  --color-text-contrast: 18 26 39;
+  --color-text-alt2: 255 255 255;
+  --color-text-code: 255 143 208;
+
+  --color-hover-default: rgb(170 195 239 / 0.1);
+  --color-hover-contrast: rgb(0 0 0 / 0.15);
+
+  --color-marketing-logo: 255 255 255;
+  --color-bw-blue: 23 93 220;
+
+  --tw-ring-offset-color: #1f242e;
+
+  --color-illustration-outline: 23 93 220;
+  --color-illustration-bg-primary: 170 195 239;
+  --color-illustration-bg-secondary: 121 161 233;
+  --color-illustration-bg-tertiary: 243 246 249;
+  --color-illustration-tertiary: 255 191 0;
+  --color-illustration-logo: 255 255 255;
+
+  /* ========================================
+   * SEMANTIC FOREGROUND COLORS (Dark Mode Overrides)
+   * ======================================== */
+
+  /* Neutral Foreground */
+  --color-fg-contrast: var(--color-gray-900);
+  --color-fg-contrast-strong: var(--color-gray-600);
+  --color-fg-heading: var(--color-gray-050);
+  --color-fg-body: var(--color-gray-200);
+  --color-fg-body-subtle: var(--color-gray-400);
+  --color-fg-inactive: var(--color-gray-600);
+
+  /* Brand Foreground */
+  --color-fg-brand-soft: var(--color-brand-500);
+  --color-fg-brand: var(--color-brand-400);
+  --color-fg-brand-strong: var(--color-brand-200);
+
+  /* Status Foreground */
+  --color-fg-success: var(--color-green-400);
+  --color-fg-success-strong: var(--color-green-200);
+  --color-fg-danger: var(--color-red-400);
+  --color-fg-danger-strong: var(--color-red-200);
+  --color-fg-warning: var(--color-orange-400);
+  --color-fg-warning-strong: var(--color-orange-200);
+  --color-fg-sensitive: var(--color-pink-300);
+
+  /* Accent Foreground */
+  --color-fg-accent-primary-soft: var(--color-teal-400);
+  --color-fg-accent-primary: var(--color-teal-300);
+  --color-fg-accent-primary-strong: var(--color-teal-100);
+  --color-fg-accent-secondary-soft: var(--color-coral-500);
+  --color-fg-accent-secondary: var(--color-coral-400);
+  --color-fg-accent-secondary-strong: var(--color-coral-100);
+  --color-fg-accent-tertiary-soft: var(--color-purple-500);
+  --color-fg-accent-tertiary: var(--color-purple-400);
+  --color-fg-accent-tertiary-strong: var(--color-purple-100);
+
+  /* ========================================
+   * SEMANTIC BACKGROUND COLORS (Dark Mode Overrides)
+   * ======================================== */
+
+  /* Neutral Background */
+  --color-bg-primary: var(--color-gray-900);
+  --color-bg-secondary: var(--color-gray-800);
+  --color-bg-tertiary: var(--color-gray-950);
+  --color-bg-quaternary: var(--color-gray-700);
+  --color-bg-inactive: var(--color-gray-950);
+
+  /* Gray Background */
+  --color-bg-gray: var(--color-gray-500);
+  --color-bg-gray-strong: var(--color-gray-400);
+
+  /* Contrast Background */
+  --color-bg-contrast-soft: var(--color-gray-200);
+  --color-bg-contrast: var(--color-gray-100);
+  --color-bg-contrast-strong: var(--color-white);
+
+  /* Brand Background */
+  --color-bg-brand-softer: var(--color-brand-950);
+  --color-bg-brand-soft: var(--color-brand-900);
+  --color-bg-brand-medium: var(--color-brand-800);
+  --color-bg-brand: var(--color-brand-400);
+  --color-bg-brand-strong: var(--color-brand-200);
+  --color-bg-brand-stronger: var(--color-brand-100);
+
+  /* Status Background */
+  --color-bg-success-soft: var(--color-green-950);
+  --color-bg-success-medium: var(--color-green-900);
+  --color-bg-success: var(--color-green-400);
+  --color-bg-success-strong: var(--color-green-200);
+  --color-bg-danger-soft: var(--color-red-950);
+  --color-bg-danger-medium: var(--color-red-900);
+  --color-bg-danger: var(--color-red-400);
+  --color-bg-danger-strong: var(--color-red-200);
+  --color-bg-warning-soft: var(--color-orange-950);
+  --color-bg-warning-medium: var(--color-orange-900);
+  --color-bg-warning: var(--color-orange-400);
+  --color-bg-warning-strong: var(--color-orange-200);
+
+  /* Accent Background */
+  --color-bg-accent-primary-soft: var(--color-teal-950);
+  --color-bg-accent-primary-medium: var(--color-teal-900);
+  --color-bg-accent-primary: var(--color-teal-400);
+  --color-bg-accent-primary-strong: var(--color-teal-200);
+  --color-bg-accent-secondary-soft: var(--color-coral-950);
+  --color-bg-accent-secondary-medium: var(--color-coral-900);
+  --color-bg-accent-secondary: var(--color-coral-400);
+  --color-bg-accent-tertiary-soft: var(--color-purple-950);
+  --color-bg-accent-tertiary-medium: var(--color-purple-900);
+  --color-bg-accent-tertiary: var(--color-purple-600);
+
+  /* Avatar Background */
+  --color-bg-avatar-teal: var(--color-teal-700);
+  --color-bg-avatar-teal-hover: var(--color-teal-600);
+  --color-bg-avatar-coral: var(--color-coral-700);
+  --color-bg-avatar-coral-hover: var(--color-coral-600);
+  --color-bg-avatar-brand: var(--color-brand-700);
+  --color-bg-avatar-brand-hover: var(--color-brand-600);
+  --color-bg-avatar-green: var(--color-green-700);
+  --color-bg-avatar-green-hover: var(--color-green-600);
+  --color-bg-avatar-purple: var(--color-purple-700);
+  --color-bg-avatar-purple-hover: var(--color-purple-600);
+
+  /* Hover & Overlay */
+  --color-bg-hover: rgba(var(--color-white-rgb), 0.05);
+  --color-bg-hover-contrast: rgba(var(--color-gray-950-rgb), 0.05);
+  --color-bg-overlay: rgba(var(--color-gray-950-rgb), 0.85);
+
+  /* ========================================
+   * SEMANTIC BORDER COLORS (Dark Mode Overrides)
+   * ======================================== */
+
+  /* Neutral Border */
+  --color-border-muted: var(--color-gray-900);
+  --color-border-light: var(--color-gray-800);
+  --color-border-base: var(--color-gray-700);
+  --color-border-strong: var(--color-gray-500);
+  --color-border-stronger: var(--color-gray-400);
+  --color-border-buffer: var(--color-gray-950);
+
+  /* Brand Border */
+  --color-border-brand-soft: var(--color-brand-800);
+  --color-border-brand: var(--color-brand-400);
+  --color-border-brand-strong: var(--color-brand-200);
+
+  /* Status Border */
+  --color-border-success-soft: var(--color-green-800);
+  --color-border-success: var(--color-green-400);
+  --color-border-success-strong: var(--color-green-200);
+  --color-border-danger-soft: var(--color-red-800);
+  --color-border-danger: var(--color-red-400);
+  --color-border-danger-strong: var(--color-red-200);
+  --color-border-warning-soft: var(--color-orange-800);
+  --color-border-warning: var(--color-orange-400);
+  --color-border-warning-strong: var(--color-orange-200);
+
+  /* Accent Border */
+  --color-border-accent-primary-soft: var(--color-teal-800);
+  --color-border-accent-secondary-soft: var(--color-coral-800);
+  --color-border-accent-secondary: var(--color-coral-500);
+  --color-border-accent-tertiary-soft: var(--color-purple-800);
+  --color-border-accent-tertiary: var(--color-purple-500);
+
+  /* Focus Border */
+  --color-border-focus: var(--color-white);
+  --color-border-focus-contrast: var(--color-black);
+
+  /**========================================
+    * SIDENAV CUSTOM COLORS (Dark mode)
+    * ======================================== */
+
+  /* Sidenav Foreground */
+  --color-nav-fg-primary: var(--color-white);
+  --color-nav-fg-secondary: var(--color-white);
+
+  /* Sidenav Background */
+  --color-nav-bg-primary: var(--color-gray-800);
+  --color-nav-bg-secondary: var(--color-gray-800);
+  --color-nav-bg-primary-strong: var(--color-gray-600);
+  --color-nav-bg-secondary-strong: var(--color-gray-600);
+
+  /* Sidenav Hover */
+  --color-nav-bg-primary-hover: rgba(var(--color-gray-400-rgb), 0.2);
+  --color-nav-bg-secondary-hover: rgba(var(--color-gray-400-rgb), 0.2);
+  --color-nav-bg-primary-hover-strong: rgba(var(--color-gray-400-rgb), 0.6);
+  --color-nav-bg-secondary-hover-strong: rgba(var(--color-gray-400-rgb), 0.6);
+
+  /* Sidenav Border */
+  --color-nav-border-primary: var(--color-gray-700);
+  --color-nav-border-secondary: var(--color-gray-700);
+  --color-nav-border-primary-focus: var(--color-white);
+  --color-nav-border-secondary-focus: var(--color-white);
+  color-scheme: dark;
+  --color-gray-050: #f4f4f5;
+  --color-gray-100: #e9e9eb;
+  --color-gray-200: #d6d6da;
+  --color-gray-300: #bcbcc2;
+  --color-gray-400: #a2a2ab;
+  --color-gray-400-rgb: 162, 162, 171;
+  --color-gray-500: #80808a;
+  --color-gray-600: #62626d;
+  --color-gray-700: #3c3c43;
+  --color-gray-800: #242427;
+  --color-gray-900: #1c1c1f;
+  --color-gray-950: #171719;
+  --color-gray-950-rgb: 23, 23, 25;
+  --color-background: 28 28 31;
+  --color-background-alt: 23 23 25;
+  --color-background-alt2: 38 38 42;
+  --color-background-alt3: 31 31 34;
+  --color-background-alt4: 19 19 21;
+  --color-primary-100: 46 46 51;
+  --color-primary-300: 90 90 100;
+  --color-primary-600: 233 233 235;
+  --color-primary-700: 255 255 255;
+  --color-secondary-100: 42 42 47;
+  --color-secondary-300: 68 68 77;
+  --color-secondary-500: 130 130 142;
+  --color-secondary-600: 164 164 175;
+  --color-secondary-700: 191 191 201;
+  --color-text-main: 237 237 239;
+  --color-text-muted: 164 164 175;
+  --color-text-contrast: 23 23 25;
+  --color-text-alt2: 244 244 245;
+  --color-marketing-logo: 237 237 239;
+  --color-hover-default: rgba(255, 255, 255, 0.06);
+  --color-shadow: 0 0 0;
+  --color-bg-brand-softer: #242427;
+  --color-bg-brand-soft: #303035;
+  --color-bg-brand-medium: #424249;
+  --color-bg-brand: #e9e9eb;
+  --color-bg-brand-strong: #f4f4f5;
+  --color-bg-brand-stronger: #ffffff;
+  --color-fg-brand-soft: #bcbcc2;
+  --color-fg-brand: #e9e9eb;
+  --color-fg-brand-strong: #ffffff;
+  --color-fg-contrast: #171719;
+  --color-fg-contrast-strong: #3c3c43;
+  --color-border-brand-soft: #62626d;
+  --color-border-brand: #d6d6da;
+  --color-border-brand-strong: #f4f4f5;
+  --color-nav-bg-primary: #131315;
+  --color-nav-bg-secondary: #19191c;
+  --color-nav-bg-primary-strong: #35353b;
+  --color-nav-bg-secondary-strong: #35353b;
+  --color-nav-bg-primary-hover: rgba(255, 255, 255, 0.06);
+  --color-nav-bg-secondary-hover: rgba(255, 255, 255, 0.06);
+  --color-nav-bg-primary-hover-strong: rgba(255, 255, 255, 0.12);
+  --color-nav-bg-secondary-hover-strong: rgba(255, 255, 255, 0.12);
+  --color-nav-border-primary: #303035;
+  --color-nav-border-secondary: #303035;
+  --color-illustration-outline: 120 120 132;
+  --color-illustration-bg-primary: 72 72 83;
+  --color-illustration-bg-secondary: 108 108 120;
+  --color-illustration-bg-tertiary: 178 178 187;
+  --color-illustration-logo: 237 237 239;
+  --tw-ring-offset-color: #171719;
+}
+
+html, body { background-color: #171719; color: #ededee; }
+input, textarea, select { color-scheme: dark; }
+::selection { background: #555560; color: #ffffff; }
+
+/* Use upstream logo locations. Collapsed navigation keeps its existing geometry. */
+app-root img.new-logo-themed { content: url('../images/keyflow-wordmark.svg') !important; }
+bit-landing-header bit-svg > svg,
+bit-nav-logo bit-svg > svg { display: none !important; }
+bit-landing-header bit-svg::before,
+bit-nav-logo bit-svg::before {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 42px;
+  background: url('../images/keyflow-wordmark.svg') no-repeat left center;
+  background-size: contain;
+}
+bit-nav-logo bit-nav-item a::before {
+  background-image: url('../images/keyflow-icon.svg') !important;
+}
+#bit-side-nav[style*='4.5rem'] bit-nav-logo bit-svg::before { display: none; }
+
+/* Preserve information architecture and controls; only refine existing surfaces. */
+bit-landing-header header { border-bottom: 1px solid #29292e; }
+footer { color: #a4a4af; }
+#vw-disclaimer { opacity: 0.8; }
+:focus-visible { outline-color: #d6d6da; }
