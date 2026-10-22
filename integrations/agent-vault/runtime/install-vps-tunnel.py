@@ -20,7 +20,8 @@ def main():
         arguments = ['/usr/bin/ssh', '-N', '-T', '-o', 'BatchMode=yes',
                      '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15',
                      '-o', 'ServerAliveCountMax=3', '-o', 'ConnectTimeout=10',
-                     '-L', '127.0.0.1:19431:127.0.0.1:19431', 'hostinger-osiris']
+                     '-L', '127.0.0.1:19431:127.0.0.1:19431',
+                     '-L', '127.0.0.1:19433:127.0.0.1:19433', 'hostinger-osiris']
         data = {'Label': LABEL, 'ProgramArguments': arguments,
                 'RunAtLoad': True, 'KeepAlive': True, 'ThrottleInterval': 15,
                 'StandardOutPath': '/dev/null', 'StandardErrorPath': '/dev/null',
@@ -32,13 +33,30 @@ def main():
             info = PLIST.lstat()
             if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600:
                 raise RuntimeError()
-            if plistlib.loads(PLIST.read_bytes()) != data:
-                raise RuntimeError()
-        else:
-            with socket.socket() as sock:
-                sock.settimeout(.3)
-                if sock.connect_ex(('127.0.0.1', 19431)) == 0:
+            existing = plistlib.loads(PLIST.read_bytes())
+            if existing != data:
+                legacy = {**data, 'ProgramArguments': [*arguments[:-3], arguments[-1]]}
+                if existing != legacy:
                     raise RuntimeError()
+                with socket.socket() as sock:
+                    sock.settimeout(.3)
+                    if sock.connect_ex(('127.0.0.1', 19433)) == 0:
+                        raise RuntimeError()
+                if loaded:
+                    subprocess.run(['/bin/launchctl', 'bootout', domain + '/' + LABEL], check=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    loaded = False
+                pending = PLIST.with_suffix('.pending')
+                fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(fd, 'wb') as stream:
+                    plistlib.dump(data, stream)
+                os.replace(pending, PLIST)
+        else:
+            for port in [19431, 19433]:
+                with socket.socket() as sock:
+                    sock.settimeout(.3)
+                    if sock.connect_ex(('127.0.0.1', port)) == 0:
+                        raise RuntimeError()
             PLIST.parent.mkdir(exist_ok=True)
             fd = os.open(PLIST, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, 'wb') as stream:

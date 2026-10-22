@@ -7,6 +7,7 @@ import { createRuntime } from './runtime.mjs';
 import { createBrowserDriver } from './driver.mjs';
 import { createLoginController } from './controller.mjs';
 import { publicResult } from './public.mjs';
+import { executeWebRequest } from './web-request.mjs';
 
 const allowed = new Set(['preview_status', 'preview_click', 'preview_evaluate', 'preview_press', 'preview_navigate', 't3_preview_list']);
 const waiting = new Map();
@@ -44,6 +45,9 @@ input.on('line', async line => {
     if (message.action === 'status') result = await controller.status();
     else if (message.action === 'find') result = await controller.findAccounts(message.args);
     else if (message.action === 'sign-in') result = await controller.signIn(message.args);
+    else if (message.action === 'web-sign-in') result = await executeWebRequest({
+      ...message.args,credentials:runtime.credentials,driver,
+    });
     else if (message.action === 'cancel') result = await controller.cancel(message.args);
     else if (message.action === 'verify') {
       const p = message.args;
