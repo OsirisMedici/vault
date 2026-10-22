@@ -1,5 +1,11 @@
 # Working Agent Vault integration
 
+Subsequent deployment: the native Linux companion is running on the VPS and
+the assembled host passed a fresh VPS-backed GoDial login. Read
+[the deployment record](agent-vault-vps-deployment-2026-10-22.md) for current
+acceptance, remaining app UI boundary and rollback. The local-only and pending
+deployment statements below retain the historical assembly state.
+
 22 October 2026. This handoff supersedes the pre-integration audit findings.
 Osiris authorized restoring the existing engine persistently, assembling the
 engineer branches, fixing metadata/provider mismatches and using the proven

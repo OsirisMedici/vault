@@ -1,5 +1,11 @@
 # Agent Vault integration
 
+The accepted host engine now runs on the VPS through a managed private SSH
+tunnel. See [deployment and first-login results](../../docs/agent-vault-vps-deployment-2026-10-22.md)
+for current status, custody and rollback. The Mac engine below remains running
+as the preserved fallback. Earlier local-only notes describe that initial
+acceptance, not the current host-client target.
+
 Vault reuses the full pinned Infisical Agent Vault engine and the imported
 Bitwarden login snapshot. The trusted engine client, account selector and
 browser controller are assembled here. Source and runtime state are separate.
@@ -62,6 +68,11 @@ If the private host session expires, refresh its existing enrollment internally:
 ```sh
 python3 integrations/agent-vault/runtime/configure.py
 ```
+
+This retains the active target. Select `--target vps` or `--target local` for
+an explicit cutover/rollback. VPS sessions stay separate from the Mac engine's
+private session. The managed tunnel installer is
+`python3 integrations/agent-vault/runtime/install-vps-tunnel.py`.
 
 The helper makes at most one normal engine-owner login attempt using the
 already-private enrollment. It prints neither the owner password nor session.

@@ -1,5 +1,12 @@
 # Agent Vault companion
 
+The manager subsequently built and activated this companion with the existing
+snapshot and verified the first VPS-backed login. See
+[the actual deployment record](../../docs/agent-vault-vps-deployment-2026-10-22.md).
+The preparation text below records the original package scope. Repeating
+staging against the live state is forbidden; use the deployment record's
+status/restart/rollback commands.
+
 Prepared delivery for manager review. Nothing here authorizes activation. This
 service has not been built as a container or deployed. The accepted Mac engine
 and its 253 imported accounts remain authoritative until a separately approved

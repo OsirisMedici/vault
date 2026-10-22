@@ -17,8 +17,11 @@
     "runtime": "Bun 1.4.4",
     "browserTransport": "chat-tool-relay",
     "standaloneExternalTransport": "blocked_missing_supported_host_capability",
-    "vpsEngineDeployed": false,
-    "installedDesktopReplaced": false
+    "vpsEngineDeployed": true,
+    "installedDesktopReplaced": false,
+    "activeHostEngine": "VPS via managed loopback SSH tunnel",
+    "unifiedAppUiAccepted": false,
+    "automaticBitwardenSync": false
   },
   "cases": {
     "C08": {
@@ -60,9 +63,41 @@
     "syntheticVpsSnapshotStaging": "passed_after_contract_fix",
     "actualSnapshotReadOnlyMetadataCompatible": true,
     "composeConfigurationValidated": true,
-    "containerBuildVerified": false,
-    "vpsActivated": false,
+    "containerBuildVerified": true,
+    "vpsActivated": true,
     "teamLaunchAccepted": false,
     "macChatAssistedPilot": "usable"
+  },
+  "vpsDeployment": {
+    "upstreamRevision": "d5836ec3bb2315de38043d742ae5daca11a4944a",
+    "recipeSource": "a815057",
+    "platform": "linux/amd64",
+    "imageId": "sha256:da4f8215ffb14b1c4be0c497863acf2842b399282b67983474e8563802765039",
+    "encryptedSshTransfer": true,
+    "sourceStatePreserved": true,
+    "importedAccounts": 253,
+    "importedFields": 506,
+    "totalFields": 519,
+    "actualLinuxOwnershipVerified": true,
+    "loopbackOnly": true,
+    "healthy": true,
+    "restartVerified": true,
+    "sameLoadedCaCertificate": true,
+    "existingOwnerLoginVerified": true,
+    "vpsCredentialDecryptionVerified": true,
+    "existingVaultImageUnchanged": true,
+    "macEnginePreserved": true,
+    "managedPrivateTunnel": true,
+    "privateHttpsUiChecked": true,
+    "D02": {
+      "provider": "godial",
+      "freshSignIn": true,
+      "exactIdentityVerified": true,
+      "credentialSource": "VPS engine",
+      "result": "passed"
+    },
+    "unattendedExternalBrowserTransport": "blocked_missing_supported_host_capability",
+    "unifiedDesktopWebUi": "pending",
+    "teamLaunchAccepted": false
   }
 }
