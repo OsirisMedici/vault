@@ -4,8 +4,11 @@ An open-source vault interface by Osiris Medici, built on Vaultwarden and its
 compatible web client. Vault gives the web app a charcoal theme and its own
 name while retaining the upstream password-manager implementation.
 
-This first release changes appearance and branding. Team sharing configuration,
-agent permissions and protected browser credential filling are future work.
+The deployed web release changes appearance and branding. This repository is
+also the durable home for further Vault app work. A pinned macOS desktop source
+candidate is documented in [docs/desktop.md](docs/desktop.md); it has not been
+compiled, signed or accepted as a replacement app. Team sharing configuration,
+agent permissions and protected browser credential filling are separate work.
 Official Bitwarden desktop, mobile and extension clients retain their branding
 and can keep using the same server.
 
@@ -18,11 +21,14 @@ git submodule update --init --depth 1
 ```
 
 - `upstream/server` contains the complete pinned Vaultwarden source.
-- `upstream/web` contains the complete pinned compatible client source.
+- `upstream/web` contains the pinned compatible web client source, without desktop.
+- `upstream/desktop` contains the pinned official desktop-capable clients source.
 - `upstream.lock.json` records exact release tags, commits and the base image.
 - `branding/` holds original Vault assets and a display-name source patch.
 - `templates/scss/user.vaultwarden.scss.hbs` is the supported theme override.
 - `scripts/build-branding.py` creates the release's display-only asset overlay.
+- `scripts/prepare-desktop.py` applies Vault desktop changes to an ignored copy,
+  keeping the upstream checkout and the installed official app intact.
 
 Submodules preserve the upstream licenses and make future security updates
 reviewable. They are source checkouts, not a claim that every file has the same

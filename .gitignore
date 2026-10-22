@@ -16,3 +16,13 @@ runtime.env
 node_modules/
 __pycache__/
 *.pyc
+.t3/
+.codex/
+sessions/
+exports/
+cookies*.json
+*storage-state*.json
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile

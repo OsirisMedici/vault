@@ -6,3 +6,7 @@
 	path = upstream/web
 	url = https://github.com/vaultwarden/vw_web_builds.git
 	shallow = true
+[submodule "upstream/desktop"]
+	path = upstream/desktop
+	url = https://github.com/bitwarden/clients.git
+	shallow = true
