@@ -144,6 +144,23 @@ export function projectRequest(value: unknown): AgentRequest {
   };
 }
 
+// Preserve the server's newest-first ordering; history carries no execution authority.
+export function projectHistory(value: unknown): AgentRequest[] {
+  const row = object(value, ["requests"]);
+  if (!Array.isArray(row.requests) || row.requests.length > 25) {
+    return invalid();
+  }
+  const seen = new Set<string>();
+  return row.requests.map((value: unknown) => {
+    const request = projectRequest(value);
+    if (seen.has(request.requestId)) {
+      return invalid();
+    }
+    seen.add(request.requestId);
+    return request;
+  });
+}
+
 @Injectable()
 export class AgentVaultService {
   constructor(private readonly api: ApiService) {}
@@ -154,6 +171,10 @@ export class AgentVaultService {
 
   async accounts(userId: UserId): Promise<AgentAccount[]> {
     return projectAccounts(await this.send(userId, "GET", "/accounts"));
+  }
+
+  async history(userId: UserId): Promise<AgentRequest[]> {
+    return projectHistory(await this.send(userId, "GET", "/requests"));
   }
 
   async create(userId: UserId, account: AgentAccount): Promise<AgentRequest> {

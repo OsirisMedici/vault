@@ -11,7 +11,7 @@ import { HeaderModule } from "../layouts/header/header.module";
 import { SharedModule } from "../shared";
 
 import {
-  AgentAccount, AgentRequest, AgentStatus, AgentVaultService, RequestState, accountKey, isActive,
+  AgentAccount, AgentRequest, AgentStatus, AgentVaultService, Provider, RequestState, accountKey, isActive,
 } from "./agent-vault.service";
 
 const STATE_MESSAGES: Record<RequestState, string> = {
@@ -23,6 +23,12 @@ const STATE_MESSAGES: Record<RequestState, string> = {
   failed: "The sign-in did not finish. Check this chat before requesting another sign-in.",
   cancelled: "The queued request was cancelled.",
   expired: "The request expired. You can explicitly request a new sign-in.",
+};
+const STATE_LABELS: Record<RequestState, string> = {
+  queued: "Queued — not verified", working: "In progress — not verified",
+  signed_in: "Identity verified", verification_required: "Verification required",
+  credentials_rejected: "Credentials rejected", failed: "Sign-in failed",
+  cancelled: "Cancelled", expired: "Expired",
 };
 type Context = { userId: UserId; generation: number };
 
@@ -36,6 +42,22 @@ type Context = { userId: UserId; generation: number };
 })
 export class AgentVaultComponent {
   readonly accounts = signal<AgentAccount[]>([]);
+  readonly search = signal("");
+  readonly providerFilter = signal<Provider | "all">("all");
+  readonly history = signal<AgentRequest[]>([]);
+  readonly historyLoading = signal(false);
+  readonly historyError = signal<string | null>(null);
+  readonly historyLoaded = signal(false);
+  readonly filteredAccounts = computed(() => {
+    const query = this.search().trim().toLocaleLowerCase();
+    return this.accounts().filter((account) =>
+      (this.providerFilter() === "all" || account.provider === this.providerFilter()) &&
+      (!query || [account.name, account.username, account.origin, account.provider]
+        .some((value) => value.toLocaleLowerCase().includes(query))),
+    );
+  });
+  readonly hasFilters = computed(() => !!this.search().trim() || this.providerFilter() !== "all");
+  readonly historyHasActive = computed(() => this.history().some(isActive));
   readonly status = signal<AgentStatus | null>(null);
   readonly request = signal<AgentRequest | null>(null);
   readonly selectedKey = signal<string | null>(null);
@@ -49,14 +71,20 @@ export class AgentVaultComponent {
   readonly copyMessage = signal<string | null>(null);
   readonly accountKey = accountKey;
   readonly active = computed(() => isActive(this.request()));
-  readonly selected = computed(() => this.accounts().find((a) => accountKey(a) === this.selectedKey()));
+  readonly selected = computed(() => this.filteredAccounts().find((a) => accountKey(a) === this.selectedKey()));
   readonly canSelect = computed(() => this.unlocked() && !this.loading() && !this.active() &&
     !this.submitting() && !this.cancelling() && !this.uncertainSubmission());
-  readonly canSubmit = computed(() => this.canSelect() && this.status()?.state === "ready" && !!this.selected());
+  readonly canSubmit = computed(() => this.canSelect() && this.status()?.state === "ready" &&
+    !this.historyLoading() && !this.historyHasActive() && !!this.selected());
   readonly requestMessage = computed(() => {
     const request = this.request();
+    if (request?.state === "signed_in" && !request.identityVerified) {
+      return "Sign-in identity has not been verified.";
+    }
     return request ? STATE_MESSAGES[request.state] : "";
   });
+
+  private historyRevision = 0;
 
   private userId: UserId | null = null;
   private generation = 0;
@@ -100,6 +128,7 @@ export class AgentVaultComponent {
         this.uncertainSubmission()) {
       return;
     }
+    void this.refreshHistory();
     this.loading.set(true);
     this.error.set(null);
     try {
@@ -126,6 +155,69 @@ export class AgentVaultComponent {
     }
   }
 
+  setSearch(value: string): void {
+    if (this.canSelect()) {
+      this.search.set(value.slice(0, 1024));
+      this.selectedKey.set(null);
+    }
+  }
+
+  setProvider(value: Provider | "all"): void {
+    if (this.canSelect() && ["all", "clickup", "godial"].includes(value)) {
+      this.providerFilter.set(value);
+      this.selectedKey.set(null);
+    }
+  }
+
+  clearFilters(): void {
+    if (this.canSelect()) {
+      this.search.set("");
+      this.providerFilter.set("all");
+      this.selectedKey.set(null);
+    }
+  }
+
+  stateLabel(request: AgentRequest): string {
+    return request.state === "signed_in" && !request.identityVerified
+      ? "Sign-in not verified" : STATE_LABELS[request.state];
+  }
+
+  async refreshHistory(): Promise<void> {
+    const context = this.context();
+    if (!context || this.historyLoading() || this.submitting() || this.cancelling()) {
+      return;
+    }
+    const revision = this.historyRevision;
+    this.historyLoading.set(true);
+    this.historyError.set(null);
+    try {
+      const history = await this.service.history(context.userId);
+      // A later create/cancel/poll wins over a history read started before it.
+      if (this.current(context) && revision === this.historyRevision) {
+        this.history.set(history);
+        this.historyLoaded.set(true);
+      }
+    } catch {
+      if (this.current(context)) {
+        this.historyError.set("Recent requests could not be loaded. Refresh history to try again. Any rows shown are the last confirmed states.");
+      }
+    } finally {
+      if (this.current(context)) {
+        this.historyLoading.set(false);
+      }
+    }
+  }
+
+  private recordRequest(request: AgentRequest): void {
+    this.historyRevision++;
+    const previous = this.history();
+    const known = previous.some((item) => item.requestId === request.requestId);
+    this.history.set((known
+      ? previous.map((item) => item.requestId === request.requestId ? request : item)
+      : [request, ...previous]).slice(0, 25));
+    this.historyLoaded.set(true);
+  }
+
   async submit(): Promise<void> {
     const context = this.context();
     const account = this.selected();
@@ -142,6 +234,7 @@ export class AgentVaultComponent {
       const request = await this.service.create(context.userId, account);
       if (this.current(context)) {
         this.request.set(request);
+        this.recordRequest(request);
         this.beginPolling(context, request);
       }
     } catch {
@@ -170,6 +263,7 @@ export class AgentVaultComponent {
       const result = await this.service.cancel(context.userId, request);
       if (this.current(context)) {
         this.request.set(result);
+        this.recordRequest(result);
       }
     } catch {
       if (this.current(context)) {
@@ -242,6 +336,7 @@ export class AgentVaultComponent {
         return;
       }
       this.request.set(request);
+      this.recordRequest(request);
       if (!isActive(request)) {
         this.stopPolling();
         return;
@@ -281,6 +376,13 @@ export class AgentVaultComponent {
 
   private clear(): void {
     this.generation++;
+    this.historyRevision++;
+    this.history.set([]);
+    this.historyLoading.set(false);
+    this.historyError.set(null);
+    this.historyLoaded.set(false);
+    this.search.set("");
+    this.providerFilter.set("all");
     this.userId = null;
     this.stopPolling();
     this.pollDeadline = 0;

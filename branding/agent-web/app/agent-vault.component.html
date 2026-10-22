@@ -34,6 +34,38 @@
         }
       </div>
 
+      <section aria-labelledby="agent-vault-discovery-title" class="tw-my-6">
+        <h2 bitTypography="h3" id="agent-vault-discovery-title">Find an account</h2>
+        <bit-form-field>
+          <bit-label>Search imported accounts</bit-label>
+          <input bitInput type="search" name="accountSearch" maxlength="1024"
+            [ngModel]="search()" (ngModelChange)="setSearch($event)"
+            [disabled]="!canSelect()" placeholder="Name, username or origin" />
+        </bit-form-field>
+        <bit-form-field>
+          <bit-label>Provider</bit-label>
+          <bit-select name="providerFilter" [ngModel]="providerFilter()"
+            (ngModelChange)="setProvider($event)" [disabled]="!canSelect()">
+            <bit-option value="all" label="All supported providers"></bit-option>
+            <bit-option value="clickup" label="ClickUp"></bit-option>
+            <bit-option value="godial" label="GoDial"></bit-option>
+          </bit-select>
+        </bit-form-field>
+        @if (!loading() && status()) {
+          <p bitTypography="body2" role="status" aria-live="polite">
+            {{ filteredAccounts().length }} of {{ accounts().length }} supported choices shown.
+          </p>
+          @if (accounts().length > 0 && filteredAccounts().length === 0) {
+            <p bitTypography="body1">No accounts match these filters. Try another name or provider.</p>
+          }
+        }
+        @if (hasFilters()) {
+          <button bitButton buttonType="secondary" type="button" (click)="clearFilters()" [disabled]="!canSelect()">
+            Clear filters
+          </button>
+        }
+      </section>
+
       <form (ngSubmit)="submit()">
         <bit-form-field>
           <bit-label>Imported account</bit-label>
@@ -45,7 +77,7 @@
             [disabled]="!canSelect()"
             placeholder="Select an imported account"
           >
-            @for (account of accounts(); track accountKey(account)) {
+            @for (account of filteredAccounts(); track accountKey(account)) {
               <bit-option
                 [value]="accountKey(account)"
                 [label]="(account.name || 'Unnamed account') + ' · ' + account.provider + ' · ' + (account.username || 'No username')"
@@ -74,12 +106,19 @@
         </div>
       </form>
 
+      @if (historyHasActive() && !active()) {
+        <bit-callout type="info" title="A recent request is still active">
+          Check this chat before requesting another sign-in. Refresh history for its latest confirmed state.
+          History does not continue or execute a request.
+        </bit-callout>
+      }
+
       @if (request(); as request) {
         <section aria-labelledby="agent-vault-request-title" class="tw-break-words">
           <h2 bitTypography="h3" id="agent-vault-request-title">Sign-in request</h2>
           <div role="status" aria-live="polite" aria-atomic="true">
             <p bitTypography="body1">{{ requestMessage() }}</p>
-            <p bitTypography="body2">Last confirmed state: {{ request.state }}</p>
+            <p bitTypography="body2">Last confirmed state: {{ stateLabel(request) }}</p>
           </div>
           <p bitTypography="body2">{{ request.name || "Unnamed account" }} · {{ request.username || "No username" }} · {{ request.provider }}</p>
           <p bitTypography="body2">Origin: {{ request.origin }}</p>
@@ -102,6 +141,39 @@
           }
         </section>
       }
+      <section aria-labelledby="agent-vault-history-title" class="tw-mt-8 tw-break-words" [attr.aria-busy]="historyLoading()">
+        <h2 bitTypography="h3" id="agent-vault-history-title">Recent sign-in requests</h2>
+        <p bitTypography="body2">
+          Up to 25 of your requests, newest first. These are recorded outcomes, not proof that a
+          browser session is still signed in. Refreshing history never runs a sign-in.
+        </p>
+        <button bitButton buttonType="secondary" type="button" (click)="refreshHistory()"
+          [disabled]="historyLoading() || submitting() || cancelling()">
+          {{ historyLoading() ? "Loading history..." : "Refresh history" }}
+        </button>
+        <div role="status" aria-live="polite">
+          @if (historyLoading()) {
+            <p bitTypography="body2">Loading recent requests...</p>
+          }
+          @if (historyError(); as message) {
+            <bit-callout type="warning" title="History unavailable">{{ message }}</bit-callout>
+          } @else if (historyLoaded() && !historyLoading() && history().length === 0) {
+            <p bitTypography="body1">No recent sign-in requests. Select an account above to request one.</p>
+          }
+        </div>
+        <ol class="tw-list-none tw-p-0">
+          @for (item of history(); track item.requestId) {
+            <li class="tw-border-0 tw-border-b tw-border-solid tw-border-secondary-300 tw-py-4">
+              <h3 bitTypography="h4">{{ item.name || "Unnamed account" }}</h3>
+              <p bitTypography="body2">{{ item.username || "No username" }} · {{ item.provider }}</p>
+              <p bitTypography="body1">{{ stateLabel(item) }}</p>
+              <p bitTypography="body2">{{ item.origin }}</p>
+              <p bitTypography="body2">Request expiry: {{ item.expiresAt | date: "medium" }}</p>
+              <p bitTypography="body2">Request ID: <code class="tw-select-text">{{ item.requestId }}</code></p>
+            </li>
+          }
+        </ol>
+      </section>
     }
   </div>
 </bit-container>
