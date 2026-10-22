@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fixedProvider } from './providers.mjs';
 import { unwrap } from './transport.mjs';
+import { browserFailure } from './failure.mjs';
 
 function native(command,input) {
   return new Promise((resolve,reject) => {
@@ -26,12 +27,14 @@ const controlled = s => s?.control?.owner === 'unclaimed' || (s?.control?.owner 
 export function createBrowserDriver({callTool,clipboard = nativeClipboard,now = Date.now}) {
   if (typeof callTool !== 'function') throw new Error('invalid_configuration');
   const call = async (name,args) => unwrap(await callTool(name,args));
-  async function inspect({tabId} = {}) {
+  async function inspect({tabId,threadId} = {}) {
     const s = await call('preview_status',tabId ? {tabId} : {});
-    if (!s?.available || (tabId && s.tabId !== tabId)) throw new Error('host_transport_unavailable');
+    if (!s?.available || (tabId && s.tabId !== tabId)) throw new Error('host_control_unavailable');
+    if (threadId !== undefined) await checkThread(threadId,tabId);
     let origin = null;
     try { origin = new URL(s.url).origin; } catch { /* Blank tab is not a login origin. */ }
-    return {origin,url:s.url,owner:s.control?.owner,ownedByCaller:s.control?.ownedByCaller};
+    return {origin,url:s.url,owner:s.control?.owner,ownedByCaller:s.control?.ownedByCaller,
+      controlGeneration:s.control?.generation,blocked:!!(s.dialog || s.fileChooser)};
   }
   async function guard(tabId,p,generation,allowLoading = false) {
     const s = await call('preview_status',{tabId});
@@ -114,7 +117,7 @@ export function createBrowserDriver({callTool,clipboard = nativeClipboard,now = 
         await guard(tabId,p,generation);
         if (!await focusOkay(tabId,p,p.password,'password')) throw new Error('form_unavailable');
         // Require the unique submit button in the same form as the focused password.
-        const formOkay = await evaluate(tabId,`(() => { if (location.origin !== ${JSON.stringify(p.origin)}) return false; const password = document.activeElement; const buttons = [...document.querySelectorAll(${JSON.stringify(p.submit)})].filter(${visible}).filter(e=>!${JSON.stringify(p.submitText ?? '')}||e.textContent.trim()===${JSON.stringify(p.submitText ?? '')}); if (!password?.matches(${JSON.stringify(p.password)}) || buttons.length !== 1) return false; if (${JSON.stringify(p.id)} === 'godial') { const card=password.closest(${JSON.stringify(p.loginContainer ?? '.v-card')}); const users=[...document.querySelectorAll(${JSON.stringify(p.username)})].filter(${visible}); return location.hash===${JSON.stringify(p.loginHash ?? null)} && !!card && users.length===1 && card.contains(users[0]) && card.contains(buttons[0]) && buttons[0].textContent.trim()===${JSON.stringify(p.submitText ?? null)}; } return !!password.form && buttons[0].form === password.form; })()`);
+        const formOkay = await evaluate(tabId,`(() => { if (location.origin !== ${JSON.stringify(p.origin)}) return false; const password = document.activeElement; const buttons = [...document.querySelectorAll(${JSON.stringify(p.submit)})].filter(${visible}).filter(e=>!${JSON.stringify(p.submitText ?? '')}||e.textContent.trim()===${JSON.stringify(p.submitText ?? '')}); if (!password?.matches(${JSON.stringify(p.password)}) || buttons.length !== 1) return false; if (${JSON.stringify(Boolean(p.loginContainer))}) { const card=password.closest(${JSON.stringify(p.loginContainer ?? '.v-card')}); const users=[...document.querySelectorAll(${JSON.stringify(p.username)})].filter(${visible}); return location.hash===${JSON.stringify(p.loginHash ?? null)} && !!card && users.length===1 && card.contains(users[0]) && card.contains(buttons[0]) && buttons[0].textContent.trim()===${JSON.stringify(p.submitText ?? null)}; } return !!password.form && buttons[0].form === password.form; })()`);
         if (!formOkay) throw new Error('form_unavailable');
         await guard(tabId,p,generation);
         const submitted = await evaluate(tabId,`(() => { if(location.origin!==${JSON.stringify(p.origin)})return false;const bs=[...document.querySelectorAll(${JSON.stringify(p.submit)})].filter(${visible}).filter(e=>!${JSON.stringify(p.submitText ?? '')}||e.textContent.trim()===${JSON.stringify(p.submitText ?? '')});if(bs.length!==1)return false;const b=bs[0];b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);if(hit!==b&&!b.contains(hit))return false;b.click();return true;})()`);
@@ -132,8 +135,7 @@ export function createBrowserDriver({callTool,clipboard = nativeClipboard,now = 
         const after = await pageState(tabId,p);
         return {state:after,...(after === 'credentials_rejected' ? {reasonCode:'login_rejected'} : after === 'verification_required' ? {reasonCode:'owner_verification_required'} : {})};
       } catch (error) {
-        const reasonCode = ['origin_mismatch','host_control_unavailable','form_unavailable','clipboard_unavailable'].includes(error?.message) ? error.message : 'host_operation_failed';
-        return {state:reasonCode === 'origin_mismatch' || reasonCode === 'host_control_unavailable' ? 'denied' : 'host_unavailable',reasonCode};
+        return browserFailure(error);
       } finally {
         let cleanupFailed = false;
         try { await clearHeld(); } catch { cleanupFailed = true; }
@@ -150,33 +152,27 @@ export function createBrowserDriver({callTool,clipboard = nativeClipboard,now = 
       const generation = await guard(tabId,p);
       const state = await pageState(tabId,p);
       if (state !== 'ready') return {matched:false,verificationRequired:state === 'verification_required'};
-      if (p.identitySource === 'godial-current-user') {
-        // Public provider source ties the greeting to $store.getters.user.name.
-        // Project only that current user's email. Never return the store/token.
-        const email = await evaluate(tabId,`(() => { if (location.origin !== ${JSON.stringify(p.origin)} || location.pathname !== '/' || !/^#\\/(home|settings|organization)(?:[/?]|$)/.test(location.hash) || [...document.querySelectorAll('input[type="password"]')].some(e=>e.getClientRects().length)) return null; const greeting=[...document.querySelectorAll('h4')].some(e=>e.getClientRects().length&&e.textContent.trim()==='Hello!'); if (!greeting) return null; const email=document.querySelector('#app')?.__vue__?.$store?.getters?.user?.email; return typeof email==='string'?email.slice(0,320):null; })()`);
-        await guard(tabId,p,generation);
-        if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return {matched:false,verificationRequired:true};
-        return {matched:p.normalize(email)===p.normalize(expectedUsername),observedUsername:email};
-      }
-      // Only a fixed profile link may be clicked. No arbitrary navigation or caller selectors.
-      const onProfile = await evaluate(tabId,`location.origin === ${JSON.stringify(p.origin)} && new RegExp(${JSON.stringify(p.identityPathPattern)}).test(location.pathname)`);
-      if (!onProfile) {
-        const workspace = p.id === 'clickup' ? await evaluate(tabId,`location.pathname.match(/^\\/([0-9]+)(?:\\/|$)/)?.[1] ?? null`) : null;
-        if (typeof workspace === 'string' && /^[0-9]+$/.test(workspace)) {
-          await guard(tabId,p,generation);
-          await call('preview_navigate',{tabId,url:p.origin+'/'+workspace+'/settings/profile',readiness:'domContentLoaded'});
-          await settle(tabId,p,generation);
-        } else {
-        const link = await evaluate(tabId,`[...document.querySelectorAll(${JSON.stringify(p.profile)})].filter(${visible}).length === 1`);
-        if (!link) return {matched:false,verificationRequired:true};
-        await guard(tabId,p,generation);
-        await call('preview_click',{tabId,locator:p.profile,timeoutMs:3000});
-        await settle(tabId,p,generation);
+      if (p.identityKind === 'profile-input') {
+        // Only a fixed profile link or fixed workspace path may be followed.
+        const onProfile = await evaluate(tabId,`location.origin === ${JSON.stringify(p.origin)} && new RegExp(${JSON.stringify(p.identityPathPattern)}).test(location.pathname)`);
+        if (!onProfile) {
+          const workspace = p.workspacePattern ? await evaluate(tabId,`location.pathname.match(new RegExp(${JSON.stringify(p.workspacePattern)}))?.[1] ?? null`) : null;
+          if (typeof workspace === 'string' && /^[0-9]+$/.test(workspace)) {
+            await guard(tabId,p,generation);
+            await call('preview_navigate',{tabId,url:p.origin+'/'+workspace+p.profileSuffix,readiness:'domContentLoaded'});
+            await settle(tabId,p,generation);
+          } else {
+            const link = await evaluate(tabId,`[...document.querySelectorAll(${JSON.stringify(p.profile)})].filter(${visible}).length === 1`);
+            if (!link) return {matched:false,verificationRequired:true};
+            await guard(tabId,p,generation);
+            await call('preview_click',{tabId,locator:p.profile,timeoutMs:3000});
+            await settle(tabId,p,generation);
+          }
         }
       }
       await guard(tabId,p,generation);
-      // Read just the profile email, never login form values or session data.
-      const email = await evaluate(tabId,`(() => { if (location.origin !== ${JSON.stringify(p.origin)} || !new RegExp(${JSON.stringify(p.identityPathPattern)}).test(location.pathname) || [...document.querySelectorAll('input[type="password"]')].some(e=>e.getClientRects().length)) return null; const headings = [...document.querySelectorAll('h1,h2,[role="heading"]')].some(e=>/^(my settings|personal settings|profile|my profile)$/i.test(e.textContent.trim())); const es = [...document.querySelectorAll(${JSON.stringify(p.identity)})].filter(e=>e.getClientRects().length); return headings && es.length === 1 ? es[0].value?.slice(0,320) : null; })()`);
+      // The fixed adapter returns only a bounded current-user email.
+      const email = await evaluate(tabId,p.identityExpression());
       await guard(tabId,p,generation);
       if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return {matched:false,verificationRequired:true};
       return {matched:p.normalize(email) === p.normalize(expectedUsername),observedUsername:email};

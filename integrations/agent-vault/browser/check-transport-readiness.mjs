@@ -27,5 +27,7 @@ else if (!readiness.configured && child.status === 2 &&
   } catch { /* Keep a fixed error code; never print host output. */ }
 }
 console.log(JSON.stringify({case:'T01',...readiness,outcome,
-  cliExitCode:child.status,browserAvailable}));
+  cliExitCode:child.status,browserAvailable,
+  nextAction:outcome !== 'transport_reachable' ? 'continue_chat_relay' :
+    browserAvailable ? 'inspect_exact_thread_tab' : 'open_owned_tab_in_chat'}));
 process.exitCode = outcome === 'transport_reachable' ? 0 : 2;

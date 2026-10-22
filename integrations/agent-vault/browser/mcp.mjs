@@ -29,7 +29,7 @@ export async function createServer({credentials,callTool = createT3CallTool(),cl
   return server;
 }
 async function main() {
-  let runtime = await (await import('./runtime.mjs')).createRuntime();
+  let runtime;
   const path = process.env.VAULT_AGENT_RUNTIME_MODULE;
   if (path) {
     if (!isAbsolute(path)) throw new Error('invalid_configuration');
@@ -37,7 +37,7 @@ async function main() {
     if (!file.isFile() || file.isSymbolicLink() || file.uid !== process.getuid() || (file.mode & 0o077) !== 0 || !parent.isDirectory() || parent.isSymbolicLink() || parent.uid !== process.getuid() || (parent.mode & 0o077) !== 0) throw new Error('invalid_configuration');
     const factory = await import(pathToFileURL(path).href);
     runtime = await factory.createRuntime();
-  }
+  } else runtime = await (await import('./runtime.mjs')).createRuntime();
   const server = await createServer(runtime);
   await server.connect(new StdioServerTransport());
 }

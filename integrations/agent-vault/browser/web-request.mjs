@@ -6,6 +6,7 @@ import { createTransport } from '../engine/http.mjs';
 import { createLoginController } from './controller.mjs';
 import { providerForOrigin } from './providers.mjs';
 import { publicResult } from './public.mjs';
+import { browserFailure } from './failure.mjs';
 
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 async function workerTransport() {
@@ -16,9 +17,12 @@ async function workerTransport() {
 }
 
 export async function executeWebRequest({credentials,driver,requestId,threadId,tabId}) {
-  if (!uuid(requestId)) return publicResult({state:'denied',reasonCode:'invalid_request'});
-  let request, job, completed = false;
+  if (!uuid(requestId) || ![threadId,tabId].every(v => typeof v === 'string' && v.length > 0 && v.length <= 256)) return publicResult({state:'denied',reasonCode:'invalid_request'});
+  let request, job, completed = false, failure = 'host_operation_failed';
   try {
+    // A closed/foreign/human tab must not claim the queued web request.
+    const initial = await driver.inspect({threadId,tabId});
+    if (initial.blocked || !(initial.owner === 'unclaimed' || (initial.owner === 'agent' && initial.ownedByCaller === true))) throw new Error('host_control_unavailable');
     request = await workerTransport();
     job = await request('/worker/claim',{method:'POST',body:{requestId}});
     const provider = providerForOrigin(job?.origin);
@@ -26,7 +30,7 @@ export async function executeWebRequest({credentials,driver,requestId,threadId,t
         typeof job.accountId !== 'string' || job.accountId.length > 256 ||
         typeof job.username !== 'string' || !provider || provider.id !== job.provider ||
         !Number.isFinite(Date.parse(job.expiresAt)) || Date.parse(job.expiresAt) <= Date.now()) throw new Error('selection_invalid');
-    const tab = await driver.inspect({tabId});
+    const tab = await driver.inspect({threadId,tabId});
     if (tab.origin !== job.origin) throw new Error('origin_mismatch');
     // An imported item may share its username with another item. Bind the
     // exact UI-selected account ID before issuing the controller's opaque handle.
@@ -43,7 +47,10 @@ export async function executeWebRequest({credentials,driver,requestId,threadId,t
     };
     const controller = createLoginController({credentials:scoped,driver});
     const found = await controller.findAccounts({threadId,tabId,query:job.username});
-    if (found.state !== 'accounts_ready' || found.accounts?.length !== 1) throw new Error('selection_invalid');
+    if (found.state !== 'accounts_ready' || found.accounts?.length !== 1) {
+      failure = publicResult(found).reasonCode ?? 'selection_invalid';
+      throw new Error('selection_invalid');
+    }
     const result = await controller.signIn({threadId,tabId,selectionId:found.accounts[0].selectionId});
     const verified = result.state === 'signed_in' && result.account?.origin === job.origin &&
       provider.normalize(result.account.username) === provider.normalize(job.username);
@@ -52,10 +59,11 @@ export async function executeWebRequest({credentials,driver,requestId,threadId,t
     completed = true;
     return publicResult({state,requestId,reasonCode:result.reasonCode,
       ...(verified ? {account:result.account} : {})});
-  } catch {
+  } catch (error) {
     if (request && job && !completed) {
       try { await request('/worker/complete',{method:'POST',body:{requestId,state:'failed',identityVerified:false}}); } catch { /* Expiry/cancellation remains authoritative. */ }
     }
-    return publicResult({state:'failed',requestId,reasonCode:'host_operation_failed'});
+    const diagnostic = browserFailure(error,failure);
+    return publicResult({...diagnostic,state:job ? 'failed' : diagnostic.state,requestId});
   }
 }
