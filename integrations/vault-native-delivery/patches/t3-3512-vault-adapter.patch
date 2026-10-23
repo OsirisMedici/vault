@@ -1,0 +1,4972 @@
+diff --git a/apps/desktop/src/app/DesktopConfig.ts b/apps/desktop/src/app/DesktopConfig.ts
+index 773ea2450..e3b594e09 100644
+--- a/apps/desktop/src/app/DesktopConfig.ts
++++ b/apps/desktop/src/app/DesktopConfig.ts
+@@ -35,6 +35,7 @@ const compactEnv = (env: Readonly<Record<string, string | undefined>>): Record<s
+ 
+ export const DesktopConfig = Config.all({
+   appDataDirectory: trimmedString("APPDATA"),
++  desktopAppDataDirectory: trimmedString("T3CODE_DESKTOP_APP_DATA_DIR"),
+   xdgConfigHome: trimmedString("XDG_CONFIG_HOME"),
+   xdgDataHome: trimmedString("XDG_DATA_HOME"),
+   t3Home: trimmedString("T3CODE_HOME"),
+diff --git a/apps/desktop/src/app/DesktopEnvironment.test.ts b/apps/desktop/src/app/DesktopEnvironment.test.ts
+index 200745f11..5714b808a 100644
+--- a/apps/desktop/src/app/DesktopEnvironment.test.ts
++++ b/apps/desktop/src/app/DesktopEnvironment.test.ts
+@@ -38,6 +38,21 @@ const makeEnvironment = (
+ ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
+ 
+ describe("DesktopEnvironment", () => {
++  it.effect("isolates browser profiles as well as server data for a test installation", () =>
++    Effect.gen(function* () {
++      const environment = yield* makeEnvironment(
++        {},
++        {
++          T3CODE_HOME: "/isolated/vault-test/server",
++          T3CODE_DESKTOP_APP_DATA_DIR: "/isolated/vault-test/desktop",
++        },
++      );
++      assert.equal(environment.stateDir, "/isolated/vault-test/server/userdata");
++      assert.equal(environment.appDataDirectory, "/isolated/vault-test/desktop");
++      const ordinary = yield* makeEnvironment();
++      assert.equal(ordinary.appDataDirectory, "/Users/alice/Library/Application Support");
++    }),
++  );
+   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
+     Effect.gen(function* () {
+       const environment = yield* makeEnvironment({
+diff --git a/apps/desktop/src/app/DesktopEnvironment.ts b/apps/desktop/src/app/DesktopEnvironment.ts
+index ecf08255f..ed39a9c82 100644
+--- a/apps/desktop/src/app/DesktopEnvironment.ts
++++ b/apps/desktop/src/app/DesktopEnvironment.ts
+@@ -148,7 +148,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
+   const homeDirectory = input.homeDirectory;
+   const devServerUrl = config.devServerUrl;
+   const isDevelopment = Option.isSome(devServerUrl);
+-  const appDataDirectory =
++  const defaultAppDataDirectory =
+     input.platform === "win32"
+       ? Option.getOrElse(config.appDataDirectory, () =>
+           path.join(homeDirectory, "AppData", "Roaming"),
+@@ -156,6 +156,12 @@ const make = Effect.fn("desktop.environment.make")(function* (
+       : input.platform === "darwin"
+         ? path.join(homeDirectory, "Library", "Application Support")
+         : Option.getOrElse(config.xdgConfigHome, () => path.join(homeDirectory, ".config"));
++  // T3CODE_HOME isolates the server, but Electron otherwise still shares its
++  // cookies and singleton lock with the installed app. Test installs need both.
++  const appDataDirectory = Option.getOrElse(
++    config.desktopAppDataDirectory,
++    () => defaultAppDataDirectory,
++  );
+   const baseDir = resolveDesktopBaseDir({
+     homeDirectory,
+     joinPath: path.join,
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index 3056ce1ea..775a234ea 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -242,4 +242,11 @@ const layerDesktopRuntime = layerDesktopClerk.pipe(
+   Layer.provideMerge(DesktopPreReadyPlatform.layer),
+ );
+ 
+-DesktopApp.program.pipe(Effect.provide(layerDesktopRuntime), NodeRuntime.runMain);
++const program = Effect.gen(function* () {
++  const browserHost = yield* DesktopBrowserHost.DesktopBrowserHost;
++  // Acquire native sockets only from the real application entrypoint after
++  // Electron is ready. Constructing/test-providing a host has no OS side effects.
++  void Electron.app.whenReady().then(() => browserHost.startVaultConnection());
++  yield* DesktopApp.program;
++});
++program.pipe(Effect.provide(layerDesktopRuntime), NodeRuntime.runMain);
+diff --git a/apps/desktop/src/preview/CdpRelay.test.ts b/apps/desktop/src/preview/CdpRelay.test.ts
+index 2d17a2874..4a8fc797a 100644
+--- a/apps/desktop/src/preview/CdpRelay.test.ts
++++ b/apps/desktop/src/preview/CdpRelay.test.ts
+@@ -19,6 +19,28 @@ const makeTarget = (
+ const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+ 
+ describe("CDP relay", () => {
++  it("does not let a page session discover or attach to another window", async () => {
++    const send = vi.fn(async () => ({ targetInfos: [{ targetId: "PRIVATE-WINDOW" }] }));
++    const written: Array<Record<string, unknown>> = [];
++    const relay = createCdpRelayConnection(makeTarget(send), (raw) =>
++      written.push(JSON.parse(raw)),
++    );
++    for (const [id, method, params] of [
++      [1, "Target.getTargets", {}],
++      [2, "Target.attachToTarget", { targetId: "PRIVATE-WINDOW" }],
++      [3, "Target.getTargetInfo", { targetId: "PRIVATE-WINDOW" }],
++      [4, "Target.autoAttachRelated", { targetId: "PRIVATE-WINDOW" }],
++    ] as const)
++      relay.receive(JSON.stringify({ id, method, params, sessionId: "t3-preview-page" }));
++    await settle();
++    expect(send).not.toHaveBeenCalled();
++    expect(written.find((message) => message["id"] === 1)).toMatchObject({
++      result: { targetInfos: [{ targetId: "GUEST-TARGET" }] },
++    });
++    for (const id of [2, 3, 4])
++      expect(written.find((message) => message["id"] === id)).toHaveProperty("error");
++    expect(JSON.stringify(written)).not.toContain("PRIVATE-WINDOW");
++  });
+   it("announces only the tab's page, under its real target id", async () => {
+     const written: Array<Record<string, unknown>> = [];
+     const relay = createCdpRelayConnection(makeTarget(vi.fn()), (raw) =>
+diff --git a/apps/desktop/src/preview/CdpRelay.ts b/apps/desktop/src/preview/CdpRelay.ts
+index 581b69288..0e5309ea0 100644
+--- a/apps/desktop/src/preview/CdpRelay.ts
++++ b/apps/desktop/src/preview/CdpRelay.ts
+@@ -142,6 +142,21 @@ export function createCdpRelayConnection(
+   };
+ 
+   const pageCommand = (command: CdpCommand): Promise<unknown> => {
++    // A page session is not permission to escape the one-tab relay. In
++    // particular it must not discover or attach to private sign-in windows.
++    if (command.method.startsWith("Target.") && command.method !== "Target.setAutoAttach") {
++      if (command.method === "Target.getTargetInfo")
++        return targetInfo().then((info) => {
++          if (
++            command.params?.["targetId"] !== undefined &&
++            command.params["targetId"] !== info.targetId
++          )
++            throw new Error("Only this preview tab's page can be inspected.");
++          return { targetInfo: info };
++        });
++      return browserCommand(command);
++    }
++    if (command.method.startsWith("Browser.")) return browserCommand(command);
+     const child = sessions.get(command.sessionId!) === "page" ? undefined : command.sessionId;
+     // The page itself is already running, but its child frames are not:
+     // Playwright auto-attaches with waitForDebuggerOnStart, so Chromium pauses
+diff --git a/apps/desktop/src/preview/DesktopBrowserHost.test.ts b/apps/desktop/src/preview/DesktopBrowserHost.test.ts
+index 04dcd22cf..bf056f37c 100644
+--- a/apps/desktop/src/preview/DesktopBrowserHost.test.ts
++++ b/apps/desktop/src/preview/DesktopBrowserHost.test.ts
+@@ -6,6 +6,16 @@ import * as Fiber from "effect/Fiber";
+ import * as Schema from "effect/Schema";
+ import * as Stream from "effect/Stream";
+ import * as NodeEvents from "node:events";
++import { vi } from "vite-plus/test";
++
++const vault = vi.hoisted(() => ({
++  start: vi.fn(async () => ({ state: "needs_approval" })),
++  status: vi.fn(() => ({ state: "needs_approval" })),
++  cancel: vi.fn(() => ({ state: "cancelled" })),
++  detach: vi.fn(),
++  revoke: vi.fn(),
++}));
++vi.mock("./PrivateVaultLogin.ts", () => ({ createPrivateVaultLogin: () => vault }));
+ 
+ import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
+ 
+@@ -30,6 +40,7 @@ const makeDebuggee = () => {
+       }),
+   });
+   const webContents = {
++    ipc: new NodeEvents.EventEmitter(),
+     getURL: () => "http://localhost/",
+     getTitle: () => "Page",
+     getUserAgent: () => "Electron",
+@@ -62,6 +73,81 @@ describe("DesktopBrowserHost", () => {
+     }),
+   );
+ 
++  it.effect("revokes a private sign-in when its relay is released", () =>
++    Effect.gen(function* () {
++      vault.revoke.mockClear();
++      vault.start.mockClear();
++      const host = yield* DesktopBrowserHost.make;
++      host.attach(key, makeDebuggee().tab);
++      const reader = yield* takeEvents(host, 2).pipe(Effect.forkScoped);
++      yield* Effect.yieldNow;
++      yield* host.handleCommandLine(
++        encodeJson({
++          type: "vaultLogin",
++          ...key,
++          requestId: "private-1",
++          agentSessionId: "agent-1",
++          action: "start",
++          accountAlias: "gmail-fixture",
++        }),
++      );
++      yield* Fiber.join(reader);
++      vault.revoke.mockClear();
++      yield* host.handleCommandLine(encodeJson({ type: "release", ...key }));
++      expect(vault.revoke).toHaveBeenCalledWith(key);
++    }).pipe(Effect.scoped),
++  );
++
++  it.effect("revokes private sign-in when native preview input takes over", () =>
++    Effect.gen(function* () {
++      const host = yield* DesktopBrowserHost.make;
++      const debuggee = makeDebuggee();
++      host.attach(key, debuggee.tab);
++      const reader = yield* takeEvents(host, 2).pipe(Effect.forkScoped);
++      yield* Effect.yieldNow;
++      yield* host.handleCommandLine(
++        encodeJson({
++          type: "vaultLogin",
++          ...key,
++          requestId: "private-native",
++          agentSessionId: "agent-1",
++          action: "start",
++          accountAlias: "gmail-fixture",
++        }),
++      );
++      yield* Fiber.join(reader);
++      vault.revoke.mockClear();
++      debuggee.tab.webContents.ipc.emit("preview:human-input");
++      expect(vault.revoke).toHaveBeenCalledWith(key);
++      host.detach(key);
++      expect(debuggee.tab.webContents.ipc.listenerCount("preview:human-input")).toBe(0);
++    }).pipe(Effect.scoped),
++  );
++
++  it.effect("invalidates a queued private start before it opens after release", () =>
++    Effect.gen(function* () {
++      const host = yield* DesktopBrowserHost.make;
++      host.attach(key, makeDebuggee().tab);
++      const reader = yield* takeEvents(host, 2).pipe(Effect.forkScoped);
++      yield* Effect.yieldNow;
++      vault.start.mockClear();
++      yield* host.handleCommandLine(
++        encodeJson({
++          type: "vaultLogin",
++          ...key,
++          requestId: "private-late",
++          agentSessionId: "agent-1",
++          action: "start",
++          accountAlias: "gmail-fixture",
++        }),
++      );
++      yield* host.handleCommandLine(encodeJson({ type: "release", ...key }));
++      const [, reply] = yield* Fiber.join(reader);
++      expect(reply).toMatchObject({ type: "vaultLogin", result: { state: "denied" } });
++      expect(vault.start).not.toHaveBeenCalled();
++    }).pipe(Effect.scoped),
++  );
++
+   it.effect("drops replies from a relay the server released", () =>
+     Effect.gen(function* () {
+       const host = yield* DesktopBrowserHost.make;
+diff --git a/apps/desktop/src/preview/DesktopBrowserHost.ts b/apps/desktop/src/preview/DesktopBrowserHost.ts
+index cef42d4f3..28a974b49 100644
+--- a/apps/desktop/src/preview/DesktopBrowserHost.ts
++++ b/apps/desktop/src/preview/DesktopBrowserHost.ts
+@@ -18,7 +18,9 @@ import * as Schema from "effect/Schema";
+ import * as Stream from "effect/Stream";
+ 
+ import { createCdpRelayConnection, type CdpRelayConnection } from "./CdpRelay.ts";
++import { HUMAN_INPUT_CHANNEL } from "./GuestProtocol.ts";
+ import { sendPageCommand } from "./GuestInput.ts";
++import type { createPrivateVaultLogin } from "./PrivateVaultLogin.ts";
+ 
+ const encodeEvent = Schema.encodeSync(Schema.fromJsonString(DesktopBrowserEvent));
+ const decodeCommand = Schema.decodeUnknownOption(Schema.fromJsonString(DesktopBrowserCommand));
+@@ -46,6 +48,8 @@ interface AttachedTab {
+   downloadDirectory: string | null;
+   pendingDownloadGuid: string | null;
+   agentInputAt: number;
++  vaultGeneration: number;
++  readonly onHumanInput: () => void;
+   readonly onMessage: (
+     event: Electron.Event,
+     method: string,
+@@ -58,6 +62,7 @@ export class DesktopBrowserHost extends Context.Service<
+   DesktopBrowserHost,
+   {
+     readonly events: Stream.Stream<Uint8Array>;
++    readonly startVaultConnection: () => Promise<void>;
+     readonly handleCommandLine: (line: string) => Effect.Effect<void>;
+     readonly attach: (key: DesktopBrowserTabKey, debuggee: DesktopBrowserTabDebugger) => void;
+     readonly detach: (key: DesktopBrowserTabKey) => void;
+@@ -82,7 +87,45 @@ export const make = Effect.gen(function* () {
+   }>(16);
+   const runFork = Effect.runForkWith(yield* Effect.context<never>());
+   const tabs = new Map<string, AttachedTab>();
++  let vault: ReturnType<typeof createPrivateVaultLogin> | undefined;
++  let vaultStarting: Promise<ReturnType<typeof createPrivateVaultLogin>> | undefined;
+   const emit = (event: DesktopBrowserEventType) => runFork(PubSub.publish(outbox, event));
++  const getVault = () => {
++    vaultStarting ??= import("./PrivateVaultLogin.ts").then((module) => {
++      vault = module.createPrivateVaultLogin(NodePath.join(__dirname, "vault-login-preload.cjs"));
++      return vault;
++    });
++    return vaultStarting;
++  };
++  // Independent MCP connects through a narrow native socket. It never attaches
++  // to the tab debugger, reads credentials, or changes the server's MCP catalog.
++  const startVaultConnection = () =>
++    Promise.all([import("./VaultConnection.ts"), import("./VaultMcpBridge.ts")])
++      .then(([connection, bridge]) =>
++        bridge.startVaultMcpBridge(
++          connection.createVaultConnection({
++            getVault,
++            getTab: (threadId, tabId) => {
++              const tab = tabs.get(keyOf({ threadId, tabId }));
++              if (!tab || !tab.relay) return undefined;
++              const generation = tab.vaultGeneration;
++              return {
++                target: tab.debuggee.webContents,
++                authorized: () =>
++                  tabs.get(keyOf(tab.key)) === tab &&
++                  !!tab.relay &&
++                  tab.vaultGeneration === generation,
++              };
++            },
++          }),
++        ),
++      )
++      .then(
++        () => {},
++        () => {
++          /* Unavailable adapter is reported by the independent MCP. */
++        },
++      );
+ 
+   const relayFor = (tab: AttachedTab) => {
+     if (tab.relay) return tab.relay;
+@@ -128,11 +171,19 @@ export const make = Effect.gen(function* () {
+     return true;
+   };
+ 
++  const revokeVault = (tab: AttachedTab) => {
++    tab.vaultGeneration++;
++    vault?.revoke(tab.key);
++  };
++
+   const detach = (key: DesktopBrowserTabKey) => {
+     const id = keyOf(key);
+     const tab = tabs.get(id);
+     if (!tab) return;
+     tabs.delete(id);
++    revokeVault(tab);
++    vault?.detach(key);
++    tab.debuggee.webContents.ipc.off(HUMAN_INPUT_CHANNEL, tab.onHumanInput);
+     tab.debuggee.debugger.off("message", tab.onMessage);
+     emit({ type: "detached", ...key });
+   };
+@@ -148,6 +199,8 @@ export const make = Effect.gen(function* () {
+       downloadDirectory: null,
+       pendingDownloadGuid: null,
+       agentInputAt: Number.NEGATIVE_INFINITY,
++      vaultGeneration: 0,
++      onHumanInput: () => revokeVault(tab),
+       onMessage: (_event, method, params, sessionId) => {
+         if (method === "Browser.downloadWillBegin") {
+           const guid = (params as { guid?: unknown } | undefined)?.guid;
+@@ -157,6 +210,7 @@ export const make = Effect.gen(function* () {
+       },
+     };
+     tabs.set(id, tab);
++    debuggee.webContents.ipc.on(HUMAN_INPUT_CHANNEL, tab.onHumanInput);
+     debuggee.debugger.on("message", tab.onMessage);
+     emit({ type: "attached", ...key });
+   };
+@@ -165,19 +219,73 @@ export const make = Effect.gen(function* () {
+     Effect.sync(() => {
+       const command = decodeCommand(line);
+       if (Option.isNone(command)) return;
+-      const tab = tabs.get(keyOf(command.value));
++      const value = command.value;
++      if (value.type === "vaultLogin") {
++        const tab = tabs.get(keyOf(value));
++        if (!tab) {
++          emit({
++            type: "vaultLogin",
++            threadId: value.threadId,
++            tabId: value.tabId,
++            requestId: value.requestId,
++            result: { state: "denied" },
++          });
++          return;
++        }
++        const generation = tab.vaultGeneration;
++        void getVault()
++          .then(async (privateVault) => {
++            if (tabs.get(keyOf(value)) !== tab || generation !== tab.vaultGeneration)
++              return { state: "denied" as const };
++            return value.action === "start"
++              ? privateVault.start(
++                  value,
++                  tab.debuggee.webContents,
++                  value.accountAlias ?? "",
++                  () => tabs.get(keyOf(value)) === tab && generation === tab.vaultGeneration,
++                )
++              : value.action === "cancel"
++                ? privateVault.cancel(value)
++                : privateVault.status(value);
++          })
++          .then(
++            (result) =>
++              emit({
++                type: "vaultLogin",
++                threadId: value.threadId,
++                tabId: value.tabId,
++                requestId: value.requestId,
++                result,
++              }),
++            () =>
++              emit({
++                type: "vaultLogin",
++                threadId: value.threadId,
++                tabId: value.tabId,
++                requestId: value.requestId,
++                result: { state: "failed" },
++              }),
++          );
++        return;
++      }
++      const tab = tabs.get(keyOf(value));
+       if (!tab) return;
+-      if (command.value.type === "pointer") {
+-        const { threadId, tabId, phase, x, y } = command.value;
++      if (value.type === "pointer") {
++        const { threadId, tabId, phase, x, y } = value;
+         runFork(PubSub.publish(pointers, { key: { threadId, tabId }, phase, x, y }));
+         return;
+       }
+-      if (command.value.type === "release") {
++      if (value.type === "revokeVaultLogin") {
++        revokeVault(tab);
++        return;
++      }
++      if (value.type === "release") {
++        revokeVault(tab);
+         tab.relay = null;
+         return;
+       }
+-      if (AGENT_INPUT_COMMAND.test(command.value.message)) tab.agentInputAt = performance.now();
+-      relayFor(tab).receive(command.value.message);
++      if (AGENT_INPUT_COMMAND.test(value.message)) tab.agentInputAt = performance.now();
++      relayFor(tab).receive(value.message);
+     });
+ 
+   const humanStartedDownload = (source: Electron.WebContents) => {
+@@ -189,6 +297,7 @@ export const make = Effect.gen(function* () {
+     Effect.forEach(
+       [...tabs.values()],
+       (tab) => {
++        revokeVault(tab);
+         tab.relay = null;
+         return PubSub.publish(outbox, { type: "attached", ...tab.key });
+       },
+@@ -197,6 +306,7 @@ export const make = Effect.gen(function* () {
+   );
+ 
+   return DesktopBrowserHost.of({
++    startVaultConnection,
+     pointers: Stream.fromPubSub(pointers),
+     // Subscribes before announcing, so no attach falls between the two.
+     events: Stream.unwrap(
+diff --git a/apps/desktop/vite.config.ts b/apps/desktop/vite.config.ts
+index c0a77e9a4..14370308b 100644
+--- a/apps/desktop/vite.config.ts
++++ b/apps/desktop/vite.config.ts
+@@ -144,6 +144,14 @@ export default defineConfig({
+       outExtensions: () => ({ js: ".cjs" }),
+       entry: ["src/mac-permission-preload.ts"],
+     },
++    {
++      format: "cjs",
++      outDir: "dist-electron",
++      dts: false,
++      sourcemap: true,
++      outExtensions: () => ({ js: ".cjs" }),
++      entry: ["src/vault-login-preload.ts"],
++    },
+   ],
+   test: {
+     include: [...defaultInclude, "../../native/kde-snap-shot/src/*.test.ts"],
+diff --git a/apps/server/src/mcp/toolkits/preview/handlers.ts b/apps/server/src/mcp/toolkits/preview/handlers.ts
+index 37b4e0470..049a61a0f 100644
+--- a/apps/server/src/mcp/toolkits/preview/handlers.ts
++++ b/apps/server/src/mcp/toolkits/preview/handlers.ts
+@@ -183,6 +183,9 @@ export const claimPreviewRecording = Effect.fn("PreviewToolkit.claimRecording")(
+ });
+ 
+ const handlers = {
++  preview_vault_login: McpToolAccess.actsAsCaller((input) =>
++    invokeTargeted<import("@t3tools/contracts").VaultLoginResult>("vaultLogin", input),
++  ),
+   preview_dialog: McpToolAccess.actsAsCaller((input) =>
+     invokeTargeted<PreviewAutomationStatus>("dialog", input),
+   ),
+diff --git a/apps/server/src/mcp/toolkits/preview/tools.ts b/apps/server/src/mcp/toolkits/preview/tools.ts
+index 88a260ed6..4154b3e2f 100644
+--- a/apps/server/src/mcp/toolkits/preview/tools.ts
++++ b/apps/server/src/mcp/toolkits/preview/tools.ts
+@@ -25,6 +25,8 @@ import {
+   PreviewAutomationTypeInput,
+   PreviewAutomationUploadInput,
+   PreviewAutomationWaitForInput,
++  PreviewVaultLoginInput,
++  VaultLoginResult,
+ } from "@t3tools/contracts";
+ import * as Schema from "effect/Schema";
+ import * as FileSystem from "effect/FileSystem";
+@@ -71,6 +73,17 @@ const PreviewStatusTool = Tool.make("preview_status", {
+   .annotate(Tool.Destructive, false)
+   .annotate(Tool.Idempotent, true);
+ 
++const PreviewVaultLoginTool = browserTool(
++  Tool.make("preview_vault_login", {
++    description:
++      "Use a registered Vault account in this desktop T3 browser tab without returning its password. Navigate the chosen tab to the account's approved login origin first, then call action=start with accountAlias from osiris-accounts list. A separate private window asks the human to approve and unlock. Website MFA stays private. Call action=status to read bounded progress, or cancel to close it. ready_to_verify means a provider session was transferred; verify the visible provider account before doing any work. Gmail submits normal login steps and connects automatically; website verification stays private. No arbitrary URLs, scripts, selectors or passwords are accepted. Unsupported on server-only/remote browser hosts.",
++    parameters: PreviewVaultLoginInput,
++    success: VaultLoginResult,
++    failure: PreviewToolFailure,
++    dependencies,
++  }).annotate(Tool.Title, "Use saved Vault account"),
++);
++
+ const PreviewOpenTool = browserTool(
+   Tool.make("preview_open", {
+     description:
+@@ -309,6 +322,7 @@ const PreviewRecordingStopTool = safeBrowserTool(
+ );
+ 
+ export const PreviewToolkit = Toolkit.make(
++  PreviewVaultLoginTool,
+   PreviewDialogTool,
+   PreviewStatusTool,
+   PreviewOpenTool,
+@@ -331,6 +345,7 @@ export const PreviewToolkit = Toolkit.make(
+ );
+ 
+ export const PreviewStandardToolkit = Toolkit.make(
++  PreviewVaultLoginTool,
+   PreviewDialogTool,
+   PreviewStatusTool,
+   PreviewOpenTool,
+diff --git a/apps/server/src/preview/DesktopBrowserChannel.ts b/apps/server/src/preview/DesktopBrowserChannel.ts
+index 0d1db856c..0ff683fd6 100644
+--- a/apps/server/src/preview/DesktopBrowserChannel.ts
++++ b/apps/server/src/preview/DesktopBrowserChannel.ts
+@@ -11,8 +11,10 @@ import {
+   DesktopBrowserCommand,
+   DesktopBrowserEvent,
+   type DesktopBrowserCommand as DesktopBrowserCommandType,
++  type VaultLoginResult,
+ } from "@t3tools/contracts";
+ import * as Context from "effect/Context";
++import * as Deferred from "effect/Deferred";
+ import * as Duration from "effect/Duration";
+ import * as Effect from "effect/Effect";
+ import * as Layer from "effect/Layer";
+@@ -57,6 +59,15 @@ export class DesktopBrowserChannel extends Context.Service<
+       key: DesktopTabKey,
+       pointer: { readonly phase: "move" | "click"; readonly x: number; readonly y: number },
+     ) => Effect.Effect<void>;
++    readonly revokeVaultLogin: (key: DesktopTabKey) => Effect.Effect<void>;
++    readonly vaultLogin: (
++      key: DesktopTabKey,
++      input: {
++        readonly agentSessionId: string;
++        readonly action: "start" | "status" | "cancel";
++        readonly accountAlias?: string;
++      },
++    ) => Effect.Effect<VaultLoginResult>;
+   }
+ >()("t3/preview/DesktopBrowserChannel") {}
+ 
+@@ -68,6 +79,10 @@ const make = Effect.gen(function* () {
+   const attachedTabs = new Set<string>();
+   const inbound = new Map<string, Queue.Queue<string>>();
+   const writeLock = yield* Semaphore.make(1);
++  const vaultRequests = new Map<
++    string,
++    { key: DesktopTabKey; deferred: Deferred.Deferred<VaultLoginResult> }
++  >();
+ 
+   if (inputFd === undefined || controlFd === undefined) {
+     return DesktopBrowserChannel.of({
+@@ -78,6 +93,8 @@ const make = Effect.gen(function* () {
+       isAttached: () => Effect.succeed(false),
+       endpoint: () => Effect.die("No desktop app is attached to this server."),
+       pointer: () => Effect.void,
++      revokeVaultLogin: () => Effect.void,
++      vaultLogin: () => Effect.succeed({ state: "unsupported" }),
+     });
+   }
+ 
+@@ -110,6 +127,11 @@ const make = Effect.gen(function* () {
+       const key = { threadId: event.threadId, tabId: event.tabId };
+       const id = keyOf(key);
+       switch (event.type) {
++        case "vaultLogin": {
++          const pending = vaultRequests.get(event.requestId);
++          if (!pending || keyOf(pending.key) !== id) return Effect.void;
++          return Deferred.succeed(pending.deferred, event.result);
++        }
+         case "cdp": {
+           const queue = inbound.get(id);
+           return queue ? Queue.offer(queue, event.message).pipe(Effect.asVoid) : Effect.void;
+@@ -216,6 +238,30 @@ const make = Effect.gen(function* () {
+     isAttached: (key) => Effect.sync(() => attachedTabs.has(keyOf(key))),
+     endpoint,
+     pointer: (key, pointer) => command({ type: "pointer", ...key, ...pointer }),
++    revokeVaultLogin: (key) => command({ type: "revokeVaultLogin", ...key }),
++    vaultLogin: Effect.fn("DesktopBrowserChannel.vaultLogin")(function* (
++      key: DesktopTabKey,
++      input: {
++        readonly agentSessionId: string;
++        readonly action: "start" | "status" | "cancel";
++        readonly accountAlias?: string;
++      },
++    ) {
++      if (!attachedTabs.has(keyOf(key))) return { state: "unsupported" as const };
++      const requestId = NodeCrypto.randomUUID();
++      const deferred = yield* Deferred.make<VaultLoginResult>();
++      vaultRequests.set(requestId, { key, deferred });
++      return yield* command({ type: "vaultLogin", ...key, ...input, requestId }).pipe(
++        Effect.andThen(Deferred.await(deferred)),
++        Effect.timeoutOption("10 seconds"),
++        Effect.map((reply) => Option.getOrElse(reply, () => ({ state: "failed" as const }))),
++        Effect.ensuring(
++          Effect.sync(() => {
++            vaultRequests.delete(requestId);
++          }),
++        ),
++      );
++    }),
+   });
+ });
+ 
+diff --git a/apps/server/src/preview/ServerBrowser.test.ts b/apps/server/src/preview/ServerBrowser.test.ts
+index ac4a785f2..7408eadc7 100644
+--- a/apps/server/src/preview/ServerBrowser.test.ts
++++ b/apps/server/src/preview/ServerBrowser.test.ts
+@@ -231,6 +231,7 @@ const desktopRenders = (tabId: string) => {
+   return desktopTabs.has(tabId);
+ };
+ const releasedDesktopTabs: Array<string> = [];
++const revokedVaultTabs: string[] = [];
+ const desktopConnections: Array<{ endpoint: string; context: ReturnType<typeof makeContext> }> = [];
+ const testThread = {
+   threadId: ThreadId.make("browser-test-thread"),
+@@ -291,6 +292,11 @@ const dependencies = Layer.mergeAll(
+         Effect.sync(() => releasedDesktopTabs.push(key.tabId)),
+       ),
+     pointer: () => Effect.void,
++    revokeVaultLogin: (key) =>
++      Effect.sync(() => {
++        revokedVaultTabs.push(key.tabId);
++      }),
++    vaultLogin: () => Effect.succeed({ state: "needs_approval" }),
+   }),
+ ).pipe(
+   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-browser-" })),
+@@ -330,9 +336,48 @@ beforeEach(() => {
+   desktopTabs.clear();
+   desktopRendersNext = false;
+   releasedDesktopTabs.length = 0;
++  revokedVaultTabs.length = 0;
+   desktopConnections.length = 0;
+ });
+ 
++it.live("refuses private Vault sign-in on a server-only browser target", () =>
++  Effect.gen(function* () {
++    const { broker, tabId } = yield* ready;
++    const result = yield* broker.invoke({
++      scope,
++      operation: "vaultLogin",
++      tabId,
++      input: { action: "start", accountAlias: "gmail-fixture" },
++    });
++    expect(result).toEqual({ state: "unsupported" });
++  }).pipe(Effect.provide(layer), Effect.scoped),
++);
++
++it.live("revokes a pending private sign-in before a remote viewer takes control", () =>
++  Effect.gen(function* () {
++    desktopRendersNext = true;
++    const { browser, broker, tabId } = yield* ready;
++    yield* broker.invoke({
++      scope,
++      tabId,
++      operation: "vaultLogin",
++      input: { action: "start", accountAlias: "gmail-fixture" },
++    });
++    const viewer = yield* browser.attachViewer(viewerInput(tabId, true));
++    yield* viewer.input({ type: "takeControl" });
++    expect(revokedVaultTabs).toEqual([tabId]);
++    const denied = yield* broker
++      .invoke<{ state: string }>({
++        scope,
++        tabId,
++        operation: "vaultLogin",
++        input: { action: "start", accountAlias: "gmail-fixture" },
++      })
++      .pipe(Effect.flip);
++    expect(denied).toMatchObject({ _tag: "PreviewAutomationControlInterruptedError" });
++  }).pipe(Effect.provide(layer), Effect.scoped),
++);
++
+ it.live.each(["desktop" as const, undefined])(
+   "explicit desktop targets ($0 runtime) fail without creating a server tab",
+   (runtime) =>
+diff --git a/apps/server/src/preview/ServerBrowser.ts b/apps/server/src/preview/ServerBrowser.ts
+index 5b386e5f0..dd131388f 100644
+--- a/apps/server/src/preview/ServerBrowser.ts
++++ b/apps/server/src/preview/ServerBrowser.ts
+@@ -744,9 +744,22 @@ const make = Effect.gen(function* () {
+     if (!desktop) await recordCopies(cdp);
+     page.setDefaultTimeout(NAVIGATION_TIMEOUT_MS);
+     page.setDefaultNavigationTimeout(NAVIGATION_TIMEOUT_MS);
+-    const control = new SessionControl(snapshot.automationOwner ?? null, () =>
+-      ServerBrowserPage.invalidateRefs(page),
+-    );
++    const control = new SessionControl(snapshot.automationOwner ?? null, () => {
++      ServerBrowserPage.invalidateRefs(page);
++      if (desktop) {
++        // Send revocation before the new controller can issue queued actions.
++        void control
++          .system(() =>
++            Effect.runPromise(
++              desktopChannel.revokeVaultLogin({
++                threadId: snapshot.threadId,
++                tabId: snapshot.tabId,
++              }),
++            ),
++          )
++          .catch(constVoid);
++      }
++    });
+     const tab: ServerTab = {
+       threadId: ThreadId.make(snapshot.threadId),
+       tabId: snapshot.tabId,
+@@ -1935,6 +1948,20 @@ const make = Effect.gen(function* () {
+   const executeTabOperation = async (tab: ServerTab, request: PreviewAutomationRequest) => {
+     const input = request.input;
+     switch (request.operation) {
++      case "vaultLogin": {
++        if (!tab.desktop || !request.agentSessionId) return { state: "unsupported" };
++        const command = request.input as import("@t3tools/contracts").PreviewVaultLoginInput;
++        return Effect.runPromise(
++          desktopChannel.vaultLogin(
++            { threadId: tab.threadId, tabId: tab.tabId },
++            {
++              agentSessionId: request.agentSessionId,
++              action: command.action,
++              ...(command.accountAlias === undefined ? {} : { accountAlias: command.accountAlias }),
++            },
++          ),
++        );
++      }
+       case "navigate": {
+         const navigateInput = input as PreviewAutomationNavigateInput;
+         await recordAction(tab, "navigate", () =>
+diff --git a/packages/contracts/src/desktopBrowser.ts b/packages/contracts/src/desktopBrowser.ts
+index c70b37491..86891833c 100644
+--- a/packages/contracts/src/desktopBrowser.ts
++++ b/packages/contracts/src/desktopBrowser.ts
+@@ -1,6 +1,7 @@
+ import * as Schema from "effect/Schema";
+ 
+ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
++import { VaultLoginResult } from "./previewAutomation.ts";
+ 
+ const TabKey = {
+   threadId: TrimmedNonEmptyString,
+@@ -12,12 +13,27 @@ export const DesktopBrowserEvent = Schema.Union([
+   /** Its `<webview>` went away: closed, crashed, swapped, or devtools took the debugger. */
+   Schema.Struct({ type: Schema.Literal("detached"), ...TabKey }),
+   Schema.Struct({ type: Schema.Literal("cdp"), ...TabKey, message: Schema.String }),
++  Schema.Struct({
++    type: Schema.Literal("vaultLogin"),
++    ...TabKey,
++    requestId: TrimmedNonEmptyString,
++    result: VaultLoginResult,
++  }),
+ ]);
+ export type DesktopBrowserEvent = typeof DesktopBrowserEvent.Type;
+ 
+ export const DesktopBrowserCommand = Schema.Union([
++  Schema.Struct({
++    type: Schema.Literal("vaultLogin"),
++    ...TabKey,
++    requestId: TrimmedNonEmptyString,
++    agentSessionId: TrimmedNonEmptyString,
++    action: Schema.Literals(["start", "status", "cancel"]),
++    accountAlias: Schema.optional(TrimmedNonEmptyString),
++  }),
+   Schema.Struct({ type: Schema.Literal("cdp"), ...TabKey, message: Schema.String }),
+   Schema.Struct({ type: Schema.Literal("release"), ...TabKey }),
++  Schema.Struct({ type: Schema.Literal("revokeVaultLogin"), ...TabKey }),
+   Schema.Struct({
+     type: Schema.Literal("pointer"),
+     ...TabKey,
+diff --git a/packages/contracts/src/previewAutomation.ts b/packages/contracts/src/previewAutomation.ts
+index 0e9ff94d6..ce883a36d 100644
+--- a/packages/contracts/src/previewAutomation.ts
++++ b/packages/contracts/src/previewAutomation.ts
+@@ -54,6 +54,7 @@ export const PREVIEW_AUTOMATION_SERVER_OPERATIONS = [
+   "hover",
+   "select",
+   "drag",
++  "vaultLogin",
+ ] as const;
+ export const PreviewAutomationOperation = Schema.Literals(PREVIEW_AUTOMATION_SERVER_OPERATIONS);
+ export type PreviewAutomationOperation = typeof PreviewAutomationOperation.Type;
+@@ -73,6 +74,53 @@ const PreviewAutomationTabTargetFields = {
+ export const PreviewAutomationTabTargetInput = Schema.Struct(PreviewAutomationTabTargetFields);
+ export type PreviewAutomationTabTargetInput = typeof PreviewAutomationTabTargetInput.Type;
+ 
++export const PreviewVaultLoginInput = Schema.Struct({
++  // Built-in filters preserve this required field's description in AI tool JSON Schema.
++  tabId: Schema.String.check(Schema.isTrimmed())
++    .check(Schema.isMinLength(1))
++    .check(Schema.isMaxLength(128))
++    .annotate({
++      description:
++        "Exact desktop preview tab from preview_status. The tab must belong to this agent or be unclaimed.",
++    }),
++  action: Schema.Literals(["start", "status", "cancel"]).annotate({
++    description: "Start a privately approved sign-in, read its bounded progress, or cancel it.",
++  }),
++  accountAlias: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))).annotate({
++    description:
++      "Registered non-secret alias from osiris-accounts list. Required for start. Never pass a password or session key.",
++  }),
++}).check(
++  Schema.makeFilter(
++    (input) =>
++      input.action !== "start" ||
++      input.accountAlias !== undefined ||
++      "Starting a private sign-in requires accountAlias.",
++  ),
++);
++export type PreviewVaultLoginInput = typeof PreviewVaultLoginInput.Type;
++
++export const VaultLoginResult = Schema.Struct({
++  state: Schema.Literals([
++    "idle",
++    "needs_approval",
++    "needs_unlock",
++    "unlocking",
++    "private_signin",
++    "transferring",
++    "ready_to_verify",
++    "signed_in",
++    "accounts_ready",
++    "cancelled",
++    "expired",
++    "failed",
++    "denied",
++    "busy",
++    "unsupported",
++  ]),
++});
++export type VaultLoginResult = typeof VaultLoginResult.Type;
++
+ export const PreviewAutomationTabOwner = Schema.Literals(["agent", "human", "unclaimed"]);
+ 
+ export const PreviewAutomationProfile = Schema.Struct({
+diff --git a/apps/desktop/src/preview/PrivateVaultLogin.test.ts b/apps/desktop/src/preview/PrivateVaultLogin.test.ts
+new file mode 100644
+index 000000000..5214d2387
+--- /dev/null
++++ b/apps/desktop/src/preview/PrivateVaultLogin.test.ts
+@@ -0,0 +1,609 @@
++// @effect-diagnostics nodeBuiltinImport:off -- Runs only the generated provider script against harmless form fixtures.
++import * as NodeVM from "node:vm";
++import { describe, expect, it, vi } from "vite-plus/test";
++
++const native = vi.hoisted(() => {
++  class Emitter {
++    listeners = new Map<string, Array<(...args: unknown[]) => void>>();
++    on(name: string, handler: (...args: unknown[]) => void) {
++      this.listeners.set(name, [...(this.listeners.get(name) ?? []), handler]);
++      return this;
++    }
++    once(name: string, handler: (...args: unknown[]) => void) {
++      const run = (...args: unknown[]) => {
++        this.off(name, run);
++        handler(...args);
++      };
++      return this.on(name, run);
++    }
++    off(name: string, handler: (...args: unknown[]) => void) {
++      this.listeners.set(
++        name,
++        (this.listeners.get(name) ?? []).filter((item) => item !== handler),
++      );
++      return this;
++    }
++    emit(name: string, ...args: unknown[]) {
++      for (const handler of this.listeners.get(name) ?? []) handler(...args);
++    }
++  }
++  class Session {
++    values: Array<Record<string, unknown>> = [];
++    cookies = {
++      get: async () => [
++        {
++          name: "auth",
++          value: "cookie-fixture",
++          domain: ".google.com",
++          path: "/",
++          secure: true,
++          httpOnly: true,
++          sameSite: "lax",
++        },
++        { name: "other", value: "excluded", domain: "evil.test", path: "/" },
++      ],
++      set: async (value: Record<string, unknown>) => {
++        this.values.push(value);
++      },
++    };
++    cleared = false;
++    setPermissionRequestHandler() {}
++    on() {}
++    async clearStorageData() {
++      this.cleared = true;
++    }
++  }
++  class Contents extends Emitter {
++    url = "https://accounts.google.com/";
++    destroyed = false;
++    mainFrame = {};
++    session = new Session();
++    scripts: string[] = [];
++    messages: Array<{ phase: string; message: string }> = [];
++    loaded = Promise.withResolvers<void>();
++    evaluated = Promise.withResolvers<void>();
++    providerReady = true;
++    isDestroyed() {
++      return this.destroyed;
++    }
++    getURL() {
++      return this.url;
++    }
++    getUserAgent() {
++      return "Fixture";
++    }
++    setUserAgent() {}
++    setWindowOpenHandler() {}
++    send(_channel: string, payload: { phase: string; message: string }) {
++      this.messages.push(payload);
++    }
++    close() {
++      this.destroyed = true;
++    }
++    async loadURL(url: string) {
++      this.url = url;
++      this.emit("did-finish-load");
++      this.loaded.resolve();
++    }
++    async executeJavaScript(script: string) {
++      this.scripts.push(script);
++      this.evaluated.resolve();
++      if (script.includes('[role="main"]')) return this.providerReady;
++    }
++  }
++  class Window extends Emitter {
++    static instances: Window[] = [];
++    webContents = new Contents();
++    contentView = { addChildView() {} };
++    destroyed = false;
++    closed = Promise.withResolvers<void>();
++    constructor() {
++      super();
++      Window.instances.push(this);
++    }
++    isDestroyed() {
++      return this.destroyed;
++    }
++    destroy() {
++      this.destroyed = true;
++      this.closed.resolve();
++    }
++    getContentBounds() {
++      return { width: 1000, height: 850 };
++    }
++    setContentProtection() {}
++    show() {}
++    focus() {}
++    async loadURL(url: string) {
++      await this.webContents.loadURL(url);
++    }
++  }
++  class View {
++    static instances: View[] = [];
++    webContents = new Contents();
++    constructor() {
++      View.instances.push(this);
++    }
++    setBounds() {}
++  }
++  const privateSessions: Session[] = [];
++  const ipc = new Emitter();
++  const app = Object.assign(new Emitter(), { getPath: () => "/fixture/private-app-data" });
++  const power = new Emitter();
++  const cli = {
++    searchAccounts: vi.fn(async () => [
++      {
++        itemId: "11111111-1111-4111-8111-111111111111",
++        name: "Gmail",
++        username: "fixture@example.com",
++        origins: ["https://accounts.google.com"],
++      },
++    ]),
++    isUnlocked: vi.fn(() => true),
++    unlock: vi.fn(async () => {}),
++    credential: vi.fn(async () => ({
++      username: "fixture@example.com",
++      password: "SENTINEL_PRIVATE_ONLY",
++    })),
++    lock: vi.fn(),
++    deviceAvailable: vi.fn(() => true),
++    deviceEnrolled: vi.fn(async () => true),
++    unlockWithTouchId: vi.fn(async () => {}),
++    enrollDevice: vi.fn(async () => {}),
++    forgetDevice: vi.fn(async () => {}),
++  };
++  return { Window, View, Contents, Session, privateSessions, ipc, app, power, cli };
++});
++
++vi.mock("electron", () => ({
++  app: native.app,
++  BrowserWindow: native.Window,
++  WebContentsView: native.View,
++  ipcMain: native.ipc,
++  powerMonitor: native.power,
++  session: {
++    fromPartition: () => {
++      const session = new native.Session();
++      native.privateSessions.push(session);
++      return session;
++    },
++  },
++}));
++vi.mock("./VaultCli.ts", () => ({ createVaultCli: () => native.cli }));
++vi.mock("./VaultDeviceUnlock.ts", () => ({ createVaultDeviceUnlock: () => ({}) }));
++vi.mock("node:os", () => ({ homedir: () => "/fixture", userInfo: () => ({ uid: 501 }) }));
++vi.mock("node:fs/promises", () => ({
++  lstat: async () => ({ isFile: () => true, isSymbolicLink: () => false, mode: 0o600, uid: 501 }),
++  readFile: async () =>
++    JSON.stringify({
++      accounts: {
++        "gmail-fixture": {
++          alias: "gmail-fixture",
++          service: "gmail",
++          username: "fixture@example.com",
++          vaultItemId: "11111111-1111-4111-8111-111111111111",
++          passwordStored: true,
++          allowedOrigins: ["https://accounts.google.com"],
++          loginUrl: "https://accounts.google.com/ServiceLogin?service=mail",
++        },
++      },
++    }),
++}));
++
++import { createPrivateVaultLogin } from "./PrivateVaultLogin.ts";
++
++const key = { threadId: "fixture-thread", tabId: "fixture-tab", agentSessionId: "fixture-agent" };
++function setup() {
++  native.Window.instances.length = 0;
++  native.View.instances.length = 0;
++  native.privateSessions.length = 0;
++  native.ipc.listeners.clear();
++  native.app.listeners.clear();
++  native.power.listeners.clear();
++  native.cli.searchAccounts
++    .mockReset()
++    .mockResolvedValue([
++      {
++        itemId: "11111111-1111-4111-8111-111111111111",
++        name: "Gmail",
++        username: "fixture@example.com",
++        origins: ["https://accounts.google.com"],
++      },
++    ]);
++  native.cli.isUnlocked.mockReset().mockReturnValue(true);
++  native.cli.unlock.mockReset().mockResolvedValue();
++  native.cli.credential
++    .mockReset()
++    .mockResolvedValue({ username: "fixture@example.com", password: "SENTINEL_PRIVATE_ONLY" });
++  native.cli.lock.mockReset();
++  native.cli.deviceAvailable.mockReset().mockReturnValue(true);
++  native.cli.deviceEnrolled.mockReset().mockResolvedValue(true);
++  native.cli.unlockWithTouchId.mockReset().mockResolvedValue();
++  native.cli.enrollDevice.mockReset().mockResolvedValue();
++  native.cli.forgetDevice.mockReset().mockResolvedValue();
++  const vault = createPrivateVaultLogin("/fixture/private-preload.cjs");
++  const target = new native.Contents();
++  const start = () => vault.start(key, target as unknown as Electron.WebContents, "gmail-fixture");
++  const action = (action: string, sender = native.Window.instances[0]!.webContents) =>
++    native.ipc.emit(
++      "desktop:private-vault-login",
++      { sender, senderFrame: sender.mainFrame },
++      { action },
++    );
++  return { vault, target, start, action };
++}
++
++describe("private Vault browser boundary", () => {
++  it("shares projected metadata only after approval, locks it, and needs fresh approval for the next login", async () => {
++    const f = setup();
++    await f.vault.start(key, f.target as unknown as Electron.WebContents, { query: "GoDaddy" });
++    expect(native.cli.searchAccounts).not.toHaveBeenCalled();
++    f.action("approve");
++    await native.Window.instances[0]!.closed.promise;
++    expect(f.vault.status(key).state).toBe("accounts_ready");
++    expect(native.cli.searchAccounts).toHaveBeenCalledWith("GoDaddy");
++    expect(native.cli.lock).toHaveBeenCalledOnce();
++    expect(native.cli.credential).not.toHaveBeenCalled();
++    await f.start();
++    expect(f.vault.status(key).state).toBe("needs_approval");
++    expect(native.cli.unlockWithTouchId).toHaveBeenCalledOnce();
++    native.ipc.emit(
++      "desktop:private-vault-login",
++      {
++        sender: native.Window.instances[1]!.webContents,
++        senderFrame: native.Window.instances[1]!.webContents.mainFrame,
++      },
++      { action: "approve" },
++    );
++    await native.View.instances[1]!.webContents.evaluated.promise;
++    expect(native.cli.unlockWithTouchId).toHaveBeenCalledTimes(2);
++    f.vault.cancel(key);
++  });
++
++  it("locks terminal search failure after a successful restore", async () => {
++    const f = setup();
++    native.cli.searchAccounts.mockRejectedValue(new Error("SENTINEL_PRIVATE_ONLY"));
++    await f.vault.start(key, f.target as unknown as Electron.WebContents, { query: "GoDaddy" });
++    f.action("approve");
++    await native.Window.instances[0]!.closed.promise;
++    expect(f.vault.status(key)).toEqual({ state: "failed" });
++    expect(native.cli.lock).toHaveBeenCalledOnce();
++    expect(native.cli.unlock).not.toHaveBeenCalled();
++    expect(JSON.stringify(f.vault.status(key))).not.toContain("SENTINEL");
++  });
++
++  it("a late old cookie rejection cannot lock or fail a newly approved request", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    page.url = "https://mail.google.com/mail/u/0/";
++    const cookies = native.privateSessions[0]!.cookies;
++    const pending = Promise.withResolvers<Awaited<ReturnType<typeof cookies.get>>>();
++    const started = Promise.withResolvers<void>();
++    cookies.get = () => {
++      started.resolve();
++      return pending.promise;
++    };
++    f.action("done");
++    await started.promise;
++    f.vault.cancel(key);
++    await f.start();
++    pending.reject(new Error("old-private-failure"));
++    // Await the old finish rejection callback without a timer or state polling.
++    await pending.promise.catch(() => {});
++    await Promise.resolve();
++    expect(f.vault.status(key)).toEqual({ state: "needs_approval" });
++    expect(native.cli.lock).toHaveBeenCalledOnce();
++    f.vault.cancel(key);
++  });
++
++  it("a wrong target identity never becomes signed_in after handoff", async () => {
++    const f = setup();
++    f.target.providerReady = false;
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    page.url = "https://mail.google.com/mail/u/0/";
++    f.action("done");
++    await native.Window.instances[0]!.closed.promise;
++    expect(f.vault.status(key)).toEqual({ state: "ready_to_verify" });
++    expect(native.cli.lock).toHaveBeenCalledOnce();
++  });
++
++  it("rejects a wrong origin before reading any credential or opening a private window", async () => {
++    const f = setup();
++    f.target.url = "https://accounts.google.com.evil.test/";
++    expect(await f.start()).toEqual({ state: "denied" });
++    expect(native.cli.credential).not.toHaveBeenCalled();
++    expect(native.Window.instances).toHaveLength(0);
++  });
++
++  it("requires private human approval and ignores commands from the agent page", async () => {
++    const f = setup();
++    expect(await f.start()).toEqual({ state: "needs_approval" });
++    f.action("approve", f.target);
++    expect(native.cli.credential).not.toHaveBeenCalled();
++    expect(f.vault.status(key)).toEqual({ state: "needs_approval" });
++    f.action("approve");
++    await native.View.instances[0]!.webContents.evaluated.promise;
++    expect(f.vault.status(key)).toEqual({ state: "private_signin" });
++    expect(f.target.scripts).toEqual([]);
++    expect(JSON.stringify(f.vault.status(key))).not.toContain("SENTINEL_PRIVATE_ONLY");
++    expect(f.vault.cancel({ ...key, agentSessionId: "another-agent" })).toEqual({
++      state: "denied",
++    });
++    f.vault.cancel(key);
++  });
++
++  it("transfers only provider cookies after confirmation and destroys the private page", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    page.url = "https://mail.google.com/mail/u/0/";
++    expect(f.target.session.values).toEqual([]);
++    f.action("done");
++    await native.Window.instances[0]!.closed.promise;
++    expect(f.vault.status(key)).toEqual({ state: "signed_in" });
++    expect(f.target.url).toBe("https://mail.google.com/");
++    expect(f.target.session.values).toHaveLength(1);
++    expect(f.target.session.values[0]?.name).toBe("auth");
++    expect(page.destroyed).toBe(true);
++    expect(JSON.stringify(f.vault.status(key))).not.toContain("cookie-fixture");
++  });
++
++  it("keeps the private window open when Finished is clicked before provider sign-in completes", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    page.url = "https://accounts.google.com/v3/signin/challenge/pwd";
++    f.action("done");
++    await Promise.resolve();
++    await Promise.resolve();
++    expect(f.vault.status(key)).toEqual({ state: "private_signin" });
++    expect(native.Window.instances[0]!.destroyed).toBe(false);
++    expect(page.destroyed).toBe(false);
++    expect(f.target.session.values).toEqual([]);
++    f.vault.cancel(key);
++  });
++
++  it("cancels and locks before transfer when the Mac locks", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    native.power.emit("lock-screen");
++    expect(f.vault.status(key)).toEqual({ state: "cancelled" });
++    expect(native.cli.lock).toHaveBeenCalledOnce();
++    expect(page.destroyed).toBe(true);
++    expect(f.target.session.values).toEqual([]);
++  });
++
++  it("requires Touch ID even when a previous request unlocked the CLI", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    await native.View.instances[0]!.webContents.evaluated.promise;
++    expect(native.cli.unlockWithTouchId).toHaveBeenCalledOnce();
++    expect(native.cli.unlock).not.toHaveBeenCalled();
++    f.vault.cancel(key);
++  });
++
++  it("automates the saved Google steps while leaving verification and other origins untouched", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    const script = page.scripts[0]!;
++    class Input {
++      stored = "";
++      dataset: Record<string, string> = {};
++      disabled = false;
++      get value() {
++        return this.stored;
++      }
++      set value(value: string) {
++        this.stored = value;
++      }
++      getClientRects() {
++        return [1];
++      }
++      dispatchEvent() {}
++    }
++    const evaluate = (
++      stage: "email" | "password" | "verification",
++      origin = "https://accounts.google.com",
++    ) => {
++      const field = new Input();
++      const click = vi.fn();
++      const button = { disabled: false, getClientRects: () => [1], click };
++      const result = NodeVM.runInNewContext(script, {
++        location: { origin },
++        HTMLInputElement: Input,
++        Event: class {
++          readonly type: string;
++          constructor(type: string) {
++            this.type = type;
++          }
++        },
++        document: {
++          querySelectorAll: (selector: string) =>
++            (stage === "email" && selector.includes('input[type="email"]')) ||
++            (stage === "password" && selector.includes('input[type="password"]'))
++              ? [field]
++              : [],
++          querySelector: (selector: string) =>
++            (stage === "email" && selector === "#identifierNext button") ||
++            (stage === "password" && selector === "#passwordNext button")
++              ? button
++              : null,
++        },
++      });
++      return { field, click, result };
++    };
++    const email = evaluate("email");
++    expect(email.result).toBe("username_submitted");
++    expect(email.field.value).toBe("fixture@example.com");
++    expect(email.click).toHaveBeenCalledOnce();
++    const password = evaluate("password");
++    expect(password.result).toBe("password_submitted");
++    expect(password.field.value).toBe("SENTINEL_PRIVATE_ONLY");
++    expect(password.click).toHaveBeenCalledOnce();
++    expect(evaluate("verification").click).not.toHaveBeenCalled();
++    const wrong = evaluate("password", "https://evil.test");
++    expect(wrong.field.value).toBe("");
++    expect(wrong.click).not.toHaveBeenCalled();
++    f.vault.cancel(key);
++  });
++
++  it("keeps credentials locked after cancelled Touch ID without a password fallback", async () => {
++    const f = setup();
++    native.cli.unlockWithTouchId.mockRejectedValue(new Error("cancelled-fixture"));
++    await f.start();
++    f.action("approve");
++    await vi.waitFor(() => expect(f.vault.status(key)).toEqual({ state: "needs_approval" }));
++    expect(native.cli.credential).not.toHaveBeenCalled();
++    expect(native.cli.unlock).not.toHaveBeenCalled();
++    expect(native.cli.enrollDevice).not.toHaveBeenCalled();
++    f.vault.cancel(key);
++  });
++
++  it("reports an invalidated saved connection without asking for another fingerprint", async () => {
++    const f = setup();
++    native.cli.unlockWithTouchId.mockRejectedValue(new Error("vault_session_invalidated"));
++    await f.start();
++    f.action("approve");
++    const window = native.Window.instances[0]!;
++    await vi.waitFor(() => expect(f.vault.status(key)).toEqual({ state: "needs_approval" }));
++    expect(window.webContents.messages.at(-1)?.message).toContain("saved Vault connection");
++    expect(window.webContents.messages.at(-1)?.message).not.toContain(
++      "Try again with your fingerprint",
++    );
++    expect(native.cli.credential).not.toHaveBeenCalled();
++    expect(native.cli.unlock).not.toHaveBeenCalled();
++    expect(native.cli.enrollDevice).not.toHaveBeenCalled();
++    f.vault.cancel(key);
++  });
++
++  it("does not hand off Gmail before its signed-in account UI is ready", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    page.url = "https://mail.google.com/mail/u/0/";
++    page.providerReady = false;
++    f.action("done");
++    await Promise.resolve();
++    await Promise.resolve();
++    expect(f.vault.status(key)).toEqual({ state: "private_signin" });
++    expect(f.target.session.values).toEqual([]);
++    expect(page.destroyed).toBe(false);
++    f.vault.cancel(key);
++  });
++
++  it.each(["revoke", "detach", "close"] as const)(
++    "locks pending Touch ID on target %s",
++    async (action) => {
++      const f = setup();
++      const unlock = Promise.withResolvers<void>();
++      native.cli.unlockWithTouchId.mockReturnValue(unlock.promise);
++      await f.start();
++      f.action("approve");
++      await vi.waitFor(() => expect(native.cli.unlockWithTouchId).toHaveBeenCalledOnce());
++      if (action === "close") native.Window.instances[0]!.emit("close");
++      else f.vault[action](key);
++      unlock.resolve();
++      await Promise.resolve();
++      await Promise.resolve();
++      expect(native.cli.lock).toHaveBeenCalledOnce();
++      expect(native.cli.credential).not.toHaveBeenCalled();
++      expect(native.View.instances[0]!.webContents.destroyed).toBe(true);
++      expect(f.target.session.values).toEqual([]);
++    },
++  );
++
++  it("rejects a redirect outside the selected provider during private verification", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    const preventDefault = vi.fn();
++    page.emit("will-redirect", { preventDefault }, "https://unrelated.test/verify");
++    expect(preventDefault).toHaveBeenCalledOnce();
++    expect(f.vault.status(key)).toEqual({ state: "failed" });
++    expect(page.destroyed).toBe(true);
++    expect(f.target.session.values).toEqual([]);
++    f.vault.cancel(key);
++  });
++
++  it("does not start Touch ID after cancellation during enrollment lookup", async () => {
++    const f = setup();
++    const enrolled = Promise.withResolvers<boolean>();
++    native.cli.deviceEnrolled.mockReturnValue(enrolled.promise);
++    await f.start();
++    f.action("approve");
++    f.vault.revoke(key);
++    enrolled.resolve(true);
++    await Promise.resolve();
++    await Promise.resolve();
++    expect(native.cli.unlockWithTouchId).not.toHaveBeenCalled();
++    expect(native.cli.credential).not.toHaveBeenCalled();
++    expect(f.vault.status(key)).toEqual({ state: "cancelled" });
++  });
++
++  it("revokes private MFA and rejects its late Finished action", async () => {
++    const f = setup();
++    await f.start();
++    f.action("approve");
++    const page = native.View.instances[0]!.webContents;
++    await page.evaluated.promise;
++    page.url = "https://accounts.google.com/v3/signin/challenge/totp";
++    f.vault.revoke(key);
++    page.url = "https://mail.google.com/mail/u/0/";
++    f.action("done");
++    await Promise.resolve();
++    expect(f.vault.status(key)).toEqual({ state: "cancelled" });
++    expect(native.cli.lock).toHaveBeenCalledOnce();
++    expect(page.destroyed).toBe(true);
++    expect(f.target.session.values).toEqual([]);
++  });
++
++  it("cannot publish a private job after authorization is lost during registry I/O", async () => {
++    const f = setup();
++    let authorized = true;
++    const starting = f.vault.start(
++      key,
++      f.target as unknown as Electron.WebContents,
++      "gmail-fixture",
++      () => authorized,
++    );
++    authorized = false;
++    expect(await starting).toEqual({ state: "denied" });
++    expect(native.Window.instances).toHaveLength(0);
++    expect(native.cli.credential).not.toHaveBeenCalled();
++  });
++
++  it("expires a pending approval without releasing credentials", async () => {
++    vi.useFakeTimers();
++    try {
++      const f = setup();
++      await f.start();
++      await vi.advanceTimersByTimeAsync(600_001);
++      expect(f.vault.status(key)).toEqual({ state: "expired" });
++      expect(native.cli.credential).not.toHaveBeenCalled();
++      expect(native.Window.instances[0]!.destroyed).toBe(true);
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++});
+diff --git a/apps/desktop/src/preview/PrivateVaultLogin.ts b/apps/desktop/src/preview/PrivateVaultLogin.ts
+new file mode 100644
+index 000000000..d0b136123
+--- /dev/null
++++ b/apps/desktop/src/preview/PrivateVaultLogin.ts
+@@ -0,0 +1,556 @@
++// @effect-diagnostics nodeBuiltinImport:off -- Native private sign-in adapter, outside the agent browser transport.
++// @effect-diagnostics globalTimers:off -- Native window callbacks own and dispose the private window deadline and form observation timer.
++import {
++  app,
++  BrowserWindow,
++  ipcMain,
++  powerMonitor,
++  session as electronSession,
++  WebContentsView,
++} from "electron";
++import * as NodeCrypto from "node:crypto";
++import * as NodeFSP from "node:fs/promises";
++import * as NodeOS from "node:os";
++import * as NodePath from "node:path";
++import type { VaultLoginResult } from "@t3tools/contracts";
++
++import { createVaultCli } from "./VaultCli.ts";
++import { createVaultDeviceUnlock } from "./VaultDeviceUnlock.ts";
++import {
++  mayFillVaultPassword,
++  mayNavigateVaultProvider,
++  mayTransferVaultCookie,
++  readVaultAccount,
++  reachedVaultProvider,
++  type VaultAccount,
++} from "./VaultLoginPolicy.ts";
++
++import { vaultIdentityScript } from "./VaultProviderIdentity.ts";
++
++const CHANNEL = "desktop:private-vault-login";
++const DEADLINE_MS = 10 * 60 * 1000;
++type TabKey = { readonly threadId: string; readonly tabId: string };
++type Key = TabKey & { readonly agentSessionId: string };
++export type VaultMetadata = { itemId: string; name: string; username: string; origins: string[] };
++type NativeVaultResult = VaultLoginResult & { accounts?: VaultMetadata[] };
++type Job = {
++  readonly key: Key;
++  readonly account: VaultAccount | undefined;
++  readonly query: string | undefined;
++  accounts?: VaultMetadata[];
++  readonly target: Electron.WebContents;
++  readonly authorized: () => boolean;
++  readonly window: Electron.BrowserWindow;
++  readonly privateSession: Electron.Session;
++  readonly page: Electron.WebContentsView;
++  state: VaultLoginResult["state"];
++  timer: ReturnType<typeof setTimeout> | undefined;
++  fillTimer: ReturnType<typeof setInterval> | undefined;
++  filling: boolean;
++  credential: { username: string; password: string } | undefined;
++  submittedUsername: boolean;
++  submittedPassword: boolean;
++};
++const idOf = (key: TabKey) => `${key.threadId}\0${key.tabId}`;
++const escapeHtml = (value: string) =>
++  value.replace(
++    /[&<>"']/g,
++    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!,
++  );
++
++// The private window is not a preview tab, has no agent debugger/recording hooks,
++// and uses an isolated, memory-only browser session. Only cookies from the chosen
++// provider are transferred after the human confirms the sign-in. Service workers,
++// page scripts, form contents and network diagnostics never cross to the preview.
++export function createPrivateVaultLogin(preloadPath: string) {
++  const cli = createVaultCli(
++    NodePath.join(app.getPath("userData"), "vault-cli"),
++    createVaultDeviceUnlock(NodePath.join(app.getPath("userData"), "vault-device", "unlock.enc")),
++  );
++  const jobs = new Map<string, Job>();
++  let active: Job | undefined;
++  const result = (job?: Job): NativeVaultResult => ({
++    state: job?.state ?? "idle",
++    ...(job?.state === "accounts_ready" ? { accounts: job.accounts } : {}),
++  });
++  const notify = (job: Job, message: string) => {
++    if (!job.window.isDestroyed())
++      job.window.webContents.send(CHANNEL, { phase: job.state, message });
++  };
++  const current = (job: Job) =>
++    active === job && job.authorized() && !job.window.isDestroyed() && !job.target.isDestroyed();
++  const cleanup = (job: Job, state: VaultLoginResult["state"]) => {
++    job.state = state;
++    job.credential = undefined;
++    clearTimeout(job.timer);
++    clearInterval(job.fillTimer);
++    if (active === job) active = undefined;
++    if (!job.page.webContents.isDestroyed()) job.page.webContents.close();
++    if (!job.window.isDestroyed()) job.window.destroy();
++    void job.privateSession.clearStorageData().catch(() => {});
++  };
++  const revoke = (key: TabKey) => {
++    const job = jobs.get(idOf(key));
++    if (job && active === job) {
++      cli.lock();
++      cleanup(job, "cancelled");
++    }
++  };
++  const fail = (job: Job) => {
++    // A rejected callback from a cancelled job cannot lock a newer request.
++    if (active !== job) return;
++    cli.lock();
++    // No underlying exception, CLI output, page payload, or form value is returned.
++    cleanup(job, "failed");
++  };
++
++  const providerReady = async (job: Job) => {
++    if (!job.account || !reachedVaultProvider(job.page.webContents.getURL(), job.account))
++      return false;
++    return job.page.webContents.executeJavaScript(vaultIdentityScript(job.account)).then(
++      (value) => value === true,
++      () => false,
++    );
++  };
++
++  const fill = async (job: Job) => {
++    if (!current(job) || job.state !== "private_signin" || job.filling || !job.account) return;
++    const page = job.page.webContents;
++    if (reachedVaultProvider(page.getURL(), job.account)) {
++      job.filling = true;
++      try {
++        await finish(job);
++      } finally {
++        job.filling = false;
++      }
++      return;
++    }
++    if (!job.credential) return;
++    if (!mayFillVaultPassword(page.getURL(), job.account)) return;
++    job.filling = true;
++    try {
++      const { username, password } = job.credential;
++      // Static provider-specific behavior only. The agent cannot supply scripts,
++      // selectors, origins or a destination for the decrypted password.
++      const step: unknown = await page.executeJavaScript(
++        `(() => {
++        if (location.origin !== ${JSON.stringify(job.account.origin)}) return;
++        const visible = e => e && !e.disabled && e.getClientRects().length > 0;
++        const set = (e, v) => {
++          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(e, v);
++          e.dispatchEvent(new Event('input', { bubbles: true }));
++          e.dispatchEvent(new Event('change', { bubbles: true }));
++        };
++        const user = [...document.querySelectorAll('input[type="email"],input[autocomplete~="username"],input[name="login"],input[name="username"],input#username')].find(visible);
++        if (user && !user.dataset.vaultFilled && ${!job.submittedUsername}) { set(user, ${JSON.stringify(username)}); user.dataset.vaultFilled = '1'; }
++        const pass = [...document.querySelectorAll('input[type="password"]:not([autocomplete="new-password"])')].find(visible);
++        if (pass && !pass.dataset.vaultFilled && ${!job.submittedPassword}) { set(pass, ${JSON.stringify(password)}); pass.dataset.vaultFilled = '1'; }
++        if (${job.account.service === "gmail"}) {
++          const nextUser = document.querySelector('#identifierNext button');
++          if (visible(user) && visible(nextUser) && user.value === ${JSON.stringify(username)} && ${!job.submittedUsername}) {
++            nextUser.click(); return 'username_submitted';
++          }
++          const nextPass = document.querySelector('#passwordNext button');
++          if (visible(pass) && visible(nextPass) && pass.value === ${JSON.stringify(password)} && ${!job.submittedPassword}) {
++            nextPass.click(); return 'password_submitted';
++          }
++        }
++        if (${job.account.service === "godaddy"} && ${!job.submittedPassword}) {
++          const submit = document.querySelector('#submitBtn');
++          if (visible(user) && visible(pass) && visible(submit) && user.value === ${JSON.stringify(username)} && pass.value === ${JSON.stringify(password)}) {
++            submit.click(); return 'password_submitted';
++          }
++        }
++        return 'waiting';
++      })()`,
++        true,
++      );
++      if (step === "username_submitted") job.submittedUsername = true;
++      if (step === "password_submitted") {
++        job.submittedPassword = true;
++        job.credential = undefined;
++      }
++    } catch {
++      // A navigation invalidates a frame. It must never expose its exception text.
++    } finally {
++      job.filling = false;
++    }
++  };
++
++  const openProvider = async (job: Job) => {
++    if (job.query !== undefined) {
++      const accounts = await cli.searchAccounts(job.query);
++      if (!current(job)) return;
++      job.accounts = accounts;
++      cli.lock();
++      cleanup(job, "accounts_ready");
++      return;
++    }
++    if (!job.account) throw new Error("missing_account");
++    const credential = await cli.credential(job.account);
++    if (!current(job)) return;
++    job.credential = credential;
++    job.state = "private_signin";
++    const bounds = job.window.getContentBounds();
++    job.window.contentView.addChildView(job.page);
++    job.page.setBounds({ x: 0, y: 210, width: bounds.width, height: bounds.height - 210 });
++    notify(
++      job,
++      "Your saved login fills privately. Supported username and password steps continue automatically. Complete website verification below if requested. This window connects only after the intended signed-in identity is verified.",
++    );
++    await job.page.webContents.loadURL(job.account.loginUrl);
++    if (!current(job)) return;
++    await fill(job);
++    job.fillTimer = setInterval(() => void fill(job), 1000);
++  };
++
++  const approve = async (job: Job) => {
++    job.state = "unlocking";
++    notify(job, "Approve with Touch ID to use this saved account…");
++    if (!cli.deviceAvailable()) {
++      job.state = "needs_approval";
++      notify(
++        job,
++        "Touch ID or Keychain encryption is unavailable. Access remains locked. No password fallback was started.",
++      );
++      return;
++    }
++    let approved = false;
++    try {
++      const enrolled = await cli.deviceEnrolled();
++      if (!current(job)) return;
++      if (enrolled) await cli.unlockWithTouchId();
++      else if (cli.isUnlocked()) await cli.enrollDevice();
++      else {
++        job.state = "needs_unlock";
++        notify(
++          job,
++          "Set up this Mac once: enter your Vault master password and current Vault authenticator code privately, then approve Touch ID. Vault keeps an encrypted local unlock key, never your master password. Future account requests use your fingerprint.",
++        );
++        return;
++      }
++      approved = true;
++      if (current(job)) await openProvider(job);
++    } catch (error) {
++      if (!current(job)) return;
++      if (approved) {
++        fail(job);
++        return;
++      }
++      job.state = "needs_approval";
++      notify(
++        job,
++        error instanceof Error && error.message === "vault_device_removal_failed"
++          ? "The saved connection could not be removed. Access stays locked. Retry explicit removal before using this Mac again."
++          : error instanceof Error && error.message === "vault_session_invalidated"
++            ? "This Mac's saved Vault connection is no longer usable. Remove its saved connection and reconnect privately once. No password fallback was started."
++            : "This Mac could not unlock the saved Vault connection. No password fallback was started.",
++      );
++    }
++  };
++
++  const finish = async (job: Job) => {
++    if (!current(job) || job.state !== "private_signin" || !job.account) return;
++    // A premature click must not discard a live password or MFA challenge.
++    // Reaching the provider destination permits handoff, not identity proof.
++    if (!(await providerReady(job))) {
++      notify(
++        job,
++        "Website sign-in is still in progress. Complete any verification below. This window stays open until the correct signed-in account is visible.",
++      );
++      return;
++    }
++    if (!current(job) || job.state !== "private_signin" || !job.account) return;
++    job.state = "transferring";
++    clearInterval(job.fillTimer);
++    job.credential = undefined;
++    const cookies = await job.privateSession.cookies.get({});
++    if (!current(job)) return;
++    for (const cookie of cookies) {
++      if (!cookie.domain) continue;
++      if (!mayTransferVaultCookie(cookie.domain, job.account)) continue;
++      if (!current(job)) return;
++      const { name, value, sameSite, expirationDate } = cookie;
++      const path = cookie.path ?? "/";
++      const host = cookie.domain.replace(/^\./, "");
++      await job.target.session.cookies.set({
++        url: `https://${host}${path}`,
++        name,
++        value,
++        path,
++        secure: cookie.secure ?? true,
++        httpOnly: cookie.httpOnly ?? false,
++        sameSite,
++        ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
++        ...(expirationDate === undefined ? {} : { expirationDate }),
++      });
++    }
++    if (!current(job)) return;
++    const target = job.target;
++    const account = job.account;
++    const landingUrl = account.landingUrl;
++    // Keep ownership/deadline checks live throughout handoff and verify the
++    // intended account in the actual destination, not merely the private page.
++    await target.loadURL(landingUrl).catch(() => {});
++    if (!current(job)) return;
++    const verified = await target.executeJavaScript(vaultIdentityScript(account)).then(
++      (value) => value === true,
++      () => false,
++    );
++    if (!current(job)) return;
++    cli.lock();
++    cleanup(job, verified ? "signed_in" : "ready_to_verify");
++  };
++
++  const listener = (event: Electron.IpcMainEvent, input: unknown) => {
++    const job = active;
++    if (
++      !job ||
++      event.sender !== job.window.webContents ||
++      event.senderFrame !== job.window.webContents.mainFrame ||
++      !current(job)
++    )
++      return;
++    if (typeof input !== "object" || input === null || !("action" in input)) return;
++    const action = (input as { action: unknown }).action;
++    if (action === "cancel") {
++      cli.lock();
++      cleanup(job, "cancelled");
++      return;
++    }
++    if (action === "lock") {
++      cli.lock();
++      cleanup(job, "cancelled");
++      return;
++    }
++    if (action === "forget") {
++      void cli.forgetDevice().then(
++        () => cleanup(job, "cancelled"),
++        () => fail(job),
++      );
++      return;
++    }
++    if (action === "approve" && job.state === "needs_approval") {
++      void approve(job).catch(() => fail(job));
++    } else if (action === "done") {
++      void finish(job).catch(() => fail(job));
++    } else if (action === "unlock" && job.state === "needs_unlock") {
++      const data = input as { password?: unknown; code?: unknown };
++      if (
++        typeof data.password !== "string" ||
++        !data.password ||
++        data.password.length > 4096 ||
++        (data.code !== undefined && (typeof data.code !== "string" || !/^\d{0,8}$/.test(data.code)))
++      )
++        return;
++      job.state = "unlocking";
++      notify(job, "Unlocking privately…");
++      void cli
++        .unlock(data.password, typeof data.code === "string" ? data.code : undefined)
++        .then(async () => {
++          if (!current(job)) return;
++          try {
++            await cli.enrollDevice();
++          } catch {
++            if (current(job)) {
++              job.state = "needs_approval";
++              notify(
++                job,
++                "Vault sign-in completed, but Touch ID setup did not. Click Use Touch ID to retry your fingerprint without re-entering your password.",
++              );
++            }
++            return;
++          }
++          if (current(job)) await openProvider(job);
++        })
++        .catch(() => {
++          if (!current(job)) return;
++          if (cli.isUnlocked()) {
++            fail(job);
++            return;
++          }
++          job.state = "needs_unlock";
++          notify(
++            job,
++            "Private sign-in did not complete. Check your password and current authenticator code, or cancel. No secret output was shared.",
++          );
++        });
++    }
++  };
++  ipcMain.on(CHANNEL, listener);
++  const lockAll = () => {
++    cli.lock();
++    if (active) cleanup(active, "cancelled");
++  };
++  powerMonitor.on("lock-screen", lockAll);
++  powerMonitor.on("suspend", lockAll);
++  app.once("before-quit", () => {
++    powerMonitor.off("lock-screen", lockAll);
++    powerMonitor.off("suspend", lockAll);
++    ipcMain.off(CHANNEL, listener);
++    lockAll();
++  });
++
++  return {
++    async start(
++      key: Key,
++      target: Electron.WebContents,
++      alias: string | VaultAccount | { readonly query: string },
++      authorized: () => boolean = () => true,
++    ): Promise<NativeVaultResult> {
++      if (active) return { state: "busy" };
++      const registry = NodePath.join(NodeOS.homedir(), ".config/osiris-agent-vault/accounts.json");
++      try {
++        let account: VaultAccount | undefined;
++        let query: string | undefined;
++        if (typeof alias === "string") {
++          const stat = await NodeFSP.lstat(registry);
++          if (
++            !stat.isFile() ||
++            stat.isSymbolicLink() ||
++            (stat.mode & 0o077) !== 0 ||
++            stat.uid !== NodeOS.userInfo().uid
++          )
++            return { state: "denied" };
++          account = readVaultAccount(JSON.parse(await NodeFSP.readFile(registry, "utf8")), alias);
++        } else if ("query" in alias) {
++          query = alias.query.trim();
++          if (
++            !query ||
++            query.length > 200 ||
++            [...query].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
++          )
++            return { state: "denied" };
++        } else account = alias;
++        if (
++          !authorized() ||
++          target.isDestroyed() ||
++          (account !== undefined && !mayFillVaultPassword(target.getURL(), account))
++        )
++          return { state: "denied" };
++        // Re-check after filesystem I/O so simultaneous requests cannot race.
++        if (active) return { state: "busy" };
++        const privateSession = electronSession.fromPartition(
++          `vault-private-${NodeCrypto.randomUUID()}`,
++        );
++        privateSession.setPermissionRequestHandler((_contents, _permission, callback) =>
++          callback(false),
++        );
++        privateSession.on("will-download", (event) => event.preventDefault());
++        const window = new BrowserWindow({
++          width: 1000,
++          height: 850,
++          title: "Vault • Private sign-in",
++          show: false,
++          backgroundColor: "#171717",
++          autoHideMenuBar: true,
++          webPreferences: {
++            sandbox: true,
++            contextIsolation: true,
++            nodeIntegration: false,
++            devTools: false,
++            partition: `vault-control-${NodeCrypto.randomUUID()}`,
++            preload: preloadPath,
++          },
++        });
++        window.setContentProtection(true);
++        window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
++        window.webContents.on("will-navigate", (event) => event.preventDefault());
++        const page = new WebContentsView({
++          webPreferences: {
++            session: privateSession,
++            sandbox: true,
++            contextIsolation: true,
++            nodeIntegration: false,
++            devTools: false,
++          },
++        });
++        page.webContents.setUserAgent(target.getUserAgent());
++        page.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
++        // Provider verification stays private, but cannot navigate to another service.
++        const navigation = (event: Electron.Event, url: string) => {
++          if (account && mayNavigateVaultProvider(url, account)) return;
++          event.preventDefault();
++          cli.lock();
++          fail(job);
++        };
++        page.webContents.on("will-navigate", navigation);
++        page.webContents.on("will-redirect", navigation);
++        const job: Job = {
++          key,
++          account,
++          query,
++          target,
++          authorized,
++          window,
++          privateSession,
++          page,
++          state: "needs_approval",
++          filling: false,
++          submittedUsername: false,
++          submittedPassword: false,
++          credential: undefined,
++          timer: undefined,
++          fillTimer: undefined,
++        };
++        jobs.set(idOf(key), job);
++        active = job;
++        job.timer = setTimeout(() => {
++          cli.lock();
++          cleanup(job, "expired");
++        }, DEADLINE_MS);
++        window.on("close", () => {
++          if (active === job) cli.lock();
++          cleanup(
++            job,
++            ["ready_to_verify", "signed_in", "accounts_ready"].includes(job.state)
++              ? job.state
++              : "cancelled",
++          );
++        });
++        window.on("resize", () => {
++          const b = window.getContentBounds();
++          page.setBounds({ x: 0, y: 210, width: b.width, height: Math.max(1, b.height - 210) });
++        });
++        window.webContents.once("did-finish-load", () =>
++          notify(
++            job,
++            account
++              ? `Allow this thread to sign in to ${account.service} as ${account.username}? This grants browser access to that account. Thread: ${key.threadId}`
++              : `Allow this thread to search saved account metadata for "${query}"? Names, usernames and website origins will be shared. No passwords. Requester label: ${key.threadId}. Confirm this is the intended T3 tab.`,
++          ),
++        );
++        const html = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; form-action 'none'"><style>body{font:14px system-ui;background:#171717;color:#eee;padding:20px;margin:0}h1{font-size:20px;margin:0 0 10px}p{max-width:900px;line-height:1.4}input,button{font:inherit;padding:9px;border-radius:6px;border:1px solid #555;margin:3px;background:#292929;color:#eee}button{cursor:pointer}small{color:#bbb}[hidden]{display:none!important}</style><h1>Vault • Private sign-in</h1><small>${escapeHtml(account ? account.username + " · " + account.origin : "Account search: " + query)}</small><p id="message">Confirm this account connection.</p><button id="approve">Use Touch ID to sign in</button><form id="unlock" hidden><input id="password" type="password" placeholder="Vault master password" autocomplete="off" required aria-label="Vault master password"><input id="code" type="password" inputmode="numeric" placeholder="Authenticator code if required" autocomplete="off" aria-label="Authenticator code"><button>Enable Touch ID on this Mac</button></form><button id="done" hidden>Finished. Connect this account</button><button id="cancel">Cancel</button><button id="lock">Lock Vault</button><button id="forget">Remove this Mac's saved connection</button>`;
++        await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
++        if (current(job)) {
++          window.show();
++          window.focus();
++        }
++        return result(job);
++      } catch {
++        if (active?.key === key) fail(active);
++        return { state: "failed" };
++      }
++    },
++    status: (key: Key): NativeVaultResult => {
++      const job = jobs.get(idOf(key));
++      return job && job.key.agentSessionId !== key.agentSessionId
++        ? { state: "denied" }
++        : result(job);
++    },
++    cancel(key: Key): VaultLoginResult {
++      const job = jobs.get(idOf(key));
++      if (job && job.key.agentSessionId !== key.agentSessionId) return { state: "denied" };
++      if (job) {
++        if (active === job) cli.lock();
++        cleanup(job, "cancelled");
++      }
++      return result(job);
++    },
++    revoke,
++    detach(key: TabKey) {
++      revoke(key);
++      jobs.delete(idOf(key));
++    },
++  };
++}
+diff --git a/apps/desktop/src/preview/VaultCli.test.ts b/apps/desktop/src/preview/VaultCli.test.ts
+new file mode 100644
+index 000000000..a7c79979c
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultCli.test.ts
+@@ -0,0 +1,515 @@
++// @effect-diagnostics nodeBuiltinImport:off -- The subprocess port uses fixture streams only.
++import { describe, expect, it, vi } from "vite-plus/test";
++
++const port = vi.hoisted(() => ({
++  commands: [] as Array<{
++    args: string[];
++    env: Record<string, string>;
++    input: string;
++    password: string;
++    killed: boolean;
++  }>,
++  respond: (_args: string[]): { stdout?: string; stderr?: string; code?: number } => ({}),
++  prepare: async () => {},
++  afterClose: (_args: string[]) => {},
++}));
++vi.mock("node:fs/promises", () => ({ mkdir: () => port.prepare(), chmod: async () => {} }));
++vi.mock("node:child_process", async () => {
++  const { EventEmitter } = await import("node:events");
++  return {
++    spawn: (_exe: string, args: string[], options: { env: Record<string, string> }) => {
++      const record = { args, env: options.env, input: "", password: "", killed: false };
++      port.commands.push(record);
++      const pipe = (field: "input" | "password") =>
++        Object.assign(new EventEmitter(), {
++          end: (value = "") => {
++            record[field] += value;
++          },
++        });
++      const child = Object.assign(new EventEmitter(), {
++        stdout: new EventEmitter(),
++        stderr: new EventEmitter(),
++        stdin: pipe("input"),
++        stdio: [undefined, undefined, undefined, pipe("password")],
++        kill: () => {
++          record.killed = true;
++          child.emit("close", null);
++        },
++      });
++      queueMicrotask(() => {
++        const response = port.respond(args);
++        if (response.stderr) child.stderr.emit("data", Buffer.from(response.stderr));
++        if (!record.killed) {
++          if (response.stdout) child.stdout.emit("data", Buffer.from(response.stdout));
++          child.emit("close", response.code ?? 0);
++          port.afterClose(args);
++        }
++      });
++      return child;
++    },
++  };
++});
++
++import { createVaultCli } from "./VaultCli.ts";
++import { readVaultAccount } from "./VaultLoginPolicy.ts";
++
++const server = "https://vault.scaleadvertisement.com";
++const owner = "businessabhish@gmail.com";
++const sessionFixture = "A".repeat(88);
++const account = readVaultAccount(
++  {
++    accounts: {
++      fixture: {
++        alias: "fixture",
++        service: "gmail",
++        username: "fixture@example.com",
++        vaultItemId: "11111111-1111-4111-8111-111111111111",
++        passwordStored: true,
++        allowedOrigins: ["https://accounts.google.com"],
++        loginUrl: "https://accounts.google.com/ServiceLogin?service=mail",
++      },
++    },
++  },
++  "fixture",
++);
++function setup(initialStatus = "unauthenticated", device?: Parameters<typeof createVaultCli>[1]) {
++  port.commands.length = 0;
++  port.prepare = async () => {};
++  port.afterClose = () => {};
++  let signedIn = initialStatus !== "unauthenticated";
++  port.respond = (args) => {
++    if (args[0] === "status")
++      return {
++        stdout: JSON.stringify({
++          status: signedIn ? "unlocked" : "unauthenticated",
++          serverUrl: server,
++          userEmail: owner,
++        }),
++      };
++    if (args[0] === "login") {
++      signedIn = true;
++      return { stdout: sessionFixture, stderr: "Two-step login code:" };
++    }
++    if (args[0] === "unlock") return { stdout: sessionFixture };
++    if (args[0] === "get")
++      return {
++        stdout: JSON.stringify({
++          id: account.vaultItemId,
++          type: 1,
++          login: {
++            username: account.username,
++            password: "SENTINEL_ITEM_ONLY",
++            uris: [{ uri: account.origin }],
++          },
++        }),
++      };
++    return {};
++  };
++  return createVaultCli("/fixture/private-cli", device);
++}
++
++const deviceFixture = () => ({
++  available: vi.fn(() => true),
++  enrolled: vi.fn(async () => true),
++  enroll: vi.fn(async (_key: string) => {}),
++  restore: vi.fn(async () => sessionFixture),
++  cancel: vi.fn(),
++  forget: vi.fn(async () => {}),
++});
++
++const metadataItem = () => ({
++  id: account.vaultItemId,
++  type: 1,
++  name: "Fixture account",
++  notes: "SENTINEL_NOTES_ONLY",
++  fields: [{ value: "SENTINEL_FIELD_ONLY" }],
++  login: {
++    username: account.username,
++    password: "SENTINEL_PASSWORD_ONLY",
++    totp: "SENTINEL_TOTP_ONLY",
++    uris: [{ uri: "https://accounts.google.com/login?token=SENTINEL_QUERY_ONLY#private" }],
++  },
++});
++
++function listResponse(value: unknown) {
++  const respond = port.respond;
++  port.respond = (args) => (args[0] === "list" ? { stdout: JSON.stringify(value) } : respond(args));
++}
++
++describe("private Vault CLI adapter", () => {
++  it("does not spawn private work if cancellation races profile preparation", async () => {
++    const cli = setup("locked");
++    const started = Promise.withResolvers<void>();
++    const prepared = Promise.withResolvers<void>();
++    port.prepare = () => {
++      started.resolve();
++      return prepared.promise;
++    };
++    const unlocking = cli.unlock("fixture-master");
++    await started.promise;
++    await cli.lock();
++    prepared.resolve();
++    await expect(unlocking).rejects.toThrow("unlock_cancelled");
++    expect(port.commands).toEqual([]);
++  });
++
++  it.each(["status", "config"])("stops enrollment after cancellation during %s", async (target) => {
++    const cli = setup();
++    port.afterClose = (args) => {
++      if (args[0] === target) void cli.lock();
++    };
++    await expect(cli.unlock("fixture-master")).rejects.toThrow("unlock_cancelled");
++    expect(port.commands.some((command) => command.args[0] === "login")).toBe(false);
++  });
++
++  it("blocks further restore if local enrollment removal fails", async () => {
++    const device = deviceFixture();
++    device.forget.mockRejectedValue(new Error("vault_device_unlock_failed"));
++    const cli = setup("locked", device);
++    await expect(cli.forgetDevice()).rejects.toThrow("vault_device_removal_failed");
++    await expect(cli.unlockWithTouchId()).rejects.toThrow("vault_device_removal_failed");
++    expect(device.restore).not.toHaveBeenCalled();
++    expect(cli.isUnlocked()).toBe(false);
++  });
++
++  it("keeps explicit revocation running across ordinary cancellation and permits a removal retry", async () => {
++    const device = deviceFixture();
++    const cli = setup("locked", device);
++    const prepared = Promise.withResolvers<void>();
++    const started = Promise.withResolvers<void>();
++    port.prepare = () => {
++      started.resolve();
++      return prepared.promise;
++    };
++    const forgetting = cli.forgetDevice();
++    await started.promise;
++    const cancelled = device.cancel.mock.calls.length;
++    const locked = cli.lock();
++    expect(device.cancel).toHaveBeenCalledTimes(cancelled);
++    prepared.resolve();
++    await forgetting;
++    await locked;
++    expect(port.commands.map((command) => command.args[0])).toEqual(["lock"]);
++    device.forget.mockRejectedValueOnce(new Error("private-removal-detail"));
++    await expect(cli.forgetDevice()).rejects.toThrow(/^vault_device_removal_failed$/);
++    await cli.forgetDevice();
++    await cli.unlockWithTouchId();
++    expect(cli.isUnlocked()).toBe(true);
++    cli.lock();
++  });
++
++  it("starts a new CLI instance locked and restores enrollment only through fresh approval", async () => {
++    const device = deviceFixture();
++    const first = setup("locked", device);
++    await first.unlockWithTouchId();
++    await first.lock();
++    const restarted = createVaultCli("/fixture/private-cli", device);
++    expect(restarted.isUnlocked()).toBe(false);
++    await expect(restarted.credential(account)).rejects.toThrow("vault_locked");
++    await restarted.unlockWithTouchId();
++    expect(device.restore).toHaveBeenCalledTimes(2);
++    expect(restarted.isUnlocked()).toBe(true);
++    restarted.lock();
++  });
++
++  it("projects only bounded account metadata and matches no secret fields", async () => {
++    const cli = setup("locked", deviceFixture());
++    await expect(cli.searchAccounts("fixture")).rejects.toThrow("vault_locked");
++    await cli.unlockWithTouchId();
++    listResponse([metadataItem()]);
++    expect(await cli.searchAccounts(" FIXTURE ")).toEqual([
++      {
++        itemId: account.vaultItemId,
++        name: "Fixture account",
++        username: account.username,
++        origins: ["https://accounts.google.com"],
++      },
++    ]);
++    expect(await cli.searchAccounts("google.com")).toHaveLength(1);
++    expect(await cli.searchAccounts("SENTINEL")).toEqual([]);
++    expect(port.commands.find((command) => command.args[0] === "list")?.args).toEqual([
++      "list",
++      "items",
++    ]);
++    cli.lock();
++  });
++
++  it.each(["", " ", "x".repeat(201), "fixture\n"])(
++    "rejects invalid metadata queries without CLI work: %j",
++    async (query) => {
++      const cli = setup();
++      await expect(cli.searchAccounts(query)).rejects.toThrow(/^invalid_account_query$/);
++      expect(port.commands).toEqual([]);
++    },
++  );
++
++  it("excludes deleted, reprompted, non-login and invalid metadata records", async () => {
++    const cli = setup("locked", deviceFixture());
++    await cli.unlockWithTouchId();
++    const item = metadataItem();
++    listResponse([
++      { ...item, deletedDate: "2026-10-22" },
++      { ...item, reprompt: 1 },
++      { ...item, type: 2 },
++      { ...item, name: "x".repeat(201) },
++      { ...item, id: "invalid" },
++      { ...item, login: { ...item.login, username: "x".repeat(201) } },
++      { ...item, name: "fixture\u0000private" },
++      null,
++      [],
++      item,
++      item,
++    ]);
++    expect(await cli.searchAccounts("fixture")).toHaveLength(1);
++    cli.lock();
++  });
++
++  it("returns at most fifty accounts and ten unique safe origins per account", async () => {
++    const cli = setup("locked", deviceFixture());
++    await cli.unlockWithTouchId();
++    const item = metadataItem();
++    item.login.uris = [
++      { uri: "http://insecure.example" },
++      { uri: "https://user:password@private.example" },
++      { uri: "https://port.example:8443" },
++      { uri: "not a URL" },
++      { uri: "https://safe.example:443/a?token=SENTINEL#fragment" },
++      { uri: "https://safe.example/b" },
++      ...Array.from({ length: 12 }, (_, index) => ({
++        uri: `https://site${index}.example/private`,
++      })),
++    ];
++    listResponse(
++      Array.from({ length: 55 }, (_, index) => ({
++        ...item,
++        id: `${String(index).padStart(8, "0")}-1111-4111-8111-111111111111`,
++      })),
++    );
++    const results = await cli.searchAccounts("fixture");
++    expect(results).toHaveLength(50);
++    expect(results[0]?.origins).toEqual([
++      "https://safe.example",
++      ...Array.from({ length: 9 }, (_, index) => `https://site${index}.example`),
++    ]);
++    expect(JSON.stringify(results)).not.toContain("SENTINEL");
++    cli.lock();
++  });
++
++  it.each(["cancel", "expire"])(
++    "refuses metadata if the completed list races %s",
++    async (event) => {
++      vi.useFakeTimers();
++      vi.setSystemTime(0);
++      try {
++        const cli = setup("locked", deviceFixture());
++        await cli.unlockWithTouchId();
++        listResponse([metadataItem()]);
++        port.afterClose = (args) => {
++          if (args[0] !== "list") return;
++          if (event === "cancel") void cli.lock();
++          else vi.setSystemTime(15 * 60 * 1000);
++        };
++        await expect(cli.searchAccounts("fixture")).rejects.toThrow(/^vault_locked$/);
++        cli.lock();
++      } finally {
++        vi.useRealTimers();
++      }
++    },
++  );
++
++  it.each(["null", "{}", "SENTINEL_MALFORMED_ONLY", "x".repeat(4 * 1024 * 1024 + 1)])(
++    "bounds and sanitizes malformed CLI metadata responses",
++    async (stdout) => {
++      const cli = setup("locked", deviceFixture());
++      await cli.unlockWithTouchId();
++      const respond = port.respond;
++      port.respond = (args) => (args[0] === "list" ? { stdout } : respond(args));
++      await expect(cli.searchAccounts("fixture")).rejects.toThrow(/^vault_cli_failed$/);
++      cli.lock();
++    },
++  );
++
++  it("keeps the master password and MFA outside argv and environment", async () => {
++    const cli = setup();
++    expect(await cli.unlock("SENTINEL_MASTER_ONLY", "123456")).toBeUndefined();
++    const login = port.commands.find((command) => command.args[0] === "login")!;
++    expect(login.password).toBe("SENTINEL_MASTER_ONLY\n");
++    expect(login.input).toBe("123456\n");
++    expect(login.args).toContain("/dev/fd/3");
++    expect(JSON.stringify(login.args)).not.toContain("SENTINEL_MASTER_ONLY");
++    expect(JSON.stringify(login.args)).not.toContain("123456");
++    expect(JSON.stringify(login.env)).not.toContain("SENTINEL_MASTER_ONLY");
++    expect(JSON.stringify(login.env)).not.toContain("123456");
++    cli.lock();
++  });
++
++  it("uses the registered item only after verifying the vault identity", async () => {
++    const cli = setup();
++    await cli.unlock("fixture-master", "123456");
++    expect(await cli.credential(account)).toEqual({
++      username: account.username,
++      password: "SENTINEL_ITEM_ONLY",
++    });
++    const get = port.commands.find((command) => command.args[0] === "get")!;
++    expect(get.args).toEqual(["get", "item", account.vaultItemId]);
++    expect(get.env.BW_SESSION).toBe(sessionFixture);
++    cli.lock();
++  });
++
++  it("does not read an item from a different vault account", async () => {
++    const cli = setup("locked");
++    port.respond = () => ({
++      stdout: JSON.stringify({
++        status: "locked",
++        serverUrl: server,
++        userEmail: "wrong@example.com",
++      }),
++    });
++    await expect(cli.unlock("fixture-master")).rejects.toThrow("wrong_vault_identity");
++    expect(port.commands.some((command) => command.args[0] === "get")).toBe(false);
++  });
++
++  it("cancels an unavailable biometric fallback instead of leaving a password prompt", async () => {
++    const cli = setup("locked");
++    const original = port.respond;
++    port.respond = (args) =>
++      args[0] === "unlock" ? { stderr: "Master password:" } : original(args);
++    await expect(cli.unlock()).rejects.toThrow("vault_cli_failed");
++    expect(port.commands.find((command) => command.args[0] === "unlock")?.killed).toBe(true);
++    expect(cli.isUnlocked()).toBe(false);
++  });
++
++  it("does not return CLI diagnostics containing secret payloads", async () => {
++    const cli = setup();
++    port.respond = () => ({
++      stdout: "SENTINEL_DIAGNOSTIC_ONLY",
++      stderr: "SENTINEL_DIAGNOSTIC_ONLY",
++      code: 1,
++    });
++    await expect(cli.unlock("fixture-master")).rejects.toThrow(/^vault_cli_failed$/);
++    expect(cli.isUnlocked()).toBe(false);
++  });
++
++  it("removes the unlock session and refuses credential reads at expiry", async () => {
++    vi.useFakeTimers();
++    try {
++      const cli = setup();
++      await cli.unlock("fixture-master", "123456");
++      await vi.advanceTimersByTimeAsync(15 * 60 * 1000 + 1);
++      expect(cli.isUnlocked()).toBe(false);
++      await expect(cli.credential(account)).rejects.toThrow("vault_locked");
++      expect(port.commands.some((command) => command.args[0] === "get")).toBe(false);
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
++  it("restores a device connection through Touch ID without another password or MFA command", async () => {
++    const device = deviceFixture();
++    const cli = setup("locked", device);
++    await cli.unlockWithTouchId();
++    expect(device.restore).toHaveBeenCalledOnce();
++    expect(cli.isUnlocked()).toBe(true);
++    expect(port.commands.map((c) => c.args[0])).toEqual(["status", "sync"]);
++    expect(port.commands[0]?.env.BW_SESSION).toBe(sessionFixture);
++    cli.lock();
++  });
++
++  it("preserves the enrolled connection when a request locks, and revokes it only when forgotten", async () => {
++    const device = deviceFixture();
++    const cli = setup("locked", device);
++    const respond = port.respond;
++    let valid = true;
++    port.respond = (args) => {
++      // Real bw lock invalidates BW_SESSION, including a key sealed by this host.
++      if (args[0] === "lock") {
++        valid = false;
++        return {};
++      }
++      if (args[0] === "status" && !valid)
++        return {
++          stdout: JSON.stringify({ status: "locked", serverUrl: server, userEmail: owner }),
++        };
++      return respond(args);
++    };
++    await cli.unlockWithTouchId();
++    await cli.lock();
++    expect(cli.isUnlocked()).toBe(false);
++    await expect(cli.credential(account)).rejects.toThrow("vault_locked");
++    await expect(cli.unlockWithTouchId()).resolves.toBeUndefined();
++    expect(device.restore).toHaveBeenCalledTimes(2);
++    expect(port.commands.some((command) => command.args[0] === "lock")).toBe(false);
++    await cli.forgetDevice();
++    expect(valid).toBe(false);
++    expect(device.forget).toHaveBeenCalledOnce();
++    expect(cli.isUnlocked()).toBe(false);
++  });
++
++  it("distinguishes an invalidated saved session from a rejected fingerprint", async () => {
++    const cli = setup("locked", deviceFixture());
++    port.respond = () => ({
++      stdout: JSON.stringify({ status: "locked", serverUrl: server, userEmail: owner }),
++    });
++    await expect(cli.unlockWithTouchId()).rejects.toThrow("vault_session_invalidated");
++    expect(cli.isUnlocked()).toBe(false);
++    expect(port.commands.map((command) => command.args[0])).toEqual(["status"]);
++  });
++
++  it("enrolls only the verified unlock key, never the master password", async () => {
++    const device = deviceFixture();
++    const cli = setup("unauthenticated", device);
++    await cli.unlock("SENTINEL_MASTER_ONLY", "123456");
++    await cli.enrollDevice();
++    expect(device.enroll).toHaveBeenCalledExactlyOnceWith(sessionFixture);
++    cli.lock();
++  });
++
++  it("does not fall back to a master password when Touch ID is cancelled", async () => {
++    const device = deviceFixture();
++    device.restore.mockRejectedValue(new Error("device_unlock_cancelled"));
++    const cli = setup("locked", device);
++    await expect(cli.unlockWithTouchId()).rejects.toThrow("device_unlock_cancelled");
++    expect(cli.isUnlocked()).toBe(false);
++    expect(port.commands).toEqual([]);
++  });
++
++  it("refuses a restored key belonging to a different Vault identity", async () => {
++    const cli = setup("locked", deviceFixture());
++    port.respond = () => ({
++      stdout: JSON.stringify({
++        status: "unlocked",
++        serverUrl: server,
++        userEmail: "wrong@example.com",
++      }),
++    });
++    await expect(cli.unlockWithTouchId()).rejects.toThrow("wrong_vault_identity");
++    expect(cli.isUnlocked()).toBe(false);
++    await expect(cli.credential(account)).rejects.toThrow("vault_locked");
++    expect(port.commands.some((c) => c.args[0] === "get")).toBe(false);
++  });
++
++  it("ignores a pending fingerprint result after the Mac locks", async () => {
++    const device = deviceFixture();
++    const pending = Promise.withResolvers<string>();
++    device.restore.mockReturnValue(pending.promise);
++    const cli = setup("locked", device);
++    const unlocking = cli.unlockWithTouchId();
++    await Promise.resolve();
++    await cli.lock();
++    pending.resolve(sessionFixture);
++    await expect(unlocking).rejects.toThrow("unlock_cancelled");
++    expect(device.cancel).toHaveBeenCalled();
++    expect(cli.isUnlocked()).toBe(false);
++  });
++
++  it("requires a fresh fingerprint per request and can remove the saved connection", async () => {
++    const device = deviceFixture();
++    const cli = setup("locked", device);
++    await cli.unlockWithTouchId();
++    await cli.unlockWithTouchId();
++    expect(device.restore).toHaveBeenCalledTimes(2);
++    await cli.forgetDevice();
++    expect(device.forget).toHaveBeenCalledOnce();
++    expect(cli.isUnlocked()).toBe(false);
++  });
++});
+diff --git a/apps/desktop/src/preview/VaultCli.ts b/apps/desktop/src/preview/VaultCli.ts
+new file mode 100644
+index 000000000..f6d3499d5
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultCli.ts
+@@ -0,0 +1,346 @@
++// @effect-diagnostics nodeBuiltinImport:off -- Private desktop CLI adapter, never a tool transport.
++// @effect-diagnostics globalTimers:off -- Subprocess and private unlock deadlines are owned by this imperative Electron adapter.
++// @effect-diagnostics globalDate:off -- This private adapter checks expiry both before and after each subprocess result.
++import * as NodeChildProcess from "node:child_process";
++import * as NodeFSP from "node:fs/promises";
++import * as NodeOS from "node:os";
++import type * as NodeStream from "node:stream";
++
++import { credentialForAccount, type VaultAccount } from "./VaultLoginPolicy.ts";
++
++const SERVER = "https://vault.scaleadvertisement.com";
++const OWNER = "businessabhish@gmail.com";
++const MAX_OUTPUT = 4 * 1024 * 1024;
++const UNLOCK_MS = 15 * 60 * 1000;
++
++interface DeviceUnlock {
++  available(): boolean;
++  enrolled(): Promise<boolean>;
++  enroll(key: string): Promise<void>;
++  restore(): Promise<string>;
++  cancel(): void;
++  forget(): Promise<void>;
++}
++
++export interface VaultAccountMetadata {
++  readonly itemId: string;
++  readonly name: string;
++  readonly username: string;
++  readonly origins: string[];
++}
++
++const record = (value: unknown): value is Record<string, unknown> =>
++  typeof value === "object" && value !== null && !Array.isArray(value);
++const metadataText = (value: unknown): value is string =>
++  typeof value === "string" &&
++  value.trim().length > 0 &&
++  value.length <= 200 &&
++  ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
++
++function accountMetadata(item: unknown): VaultAccountMetadata | undefined {
++  if (
++    !record(item) ||
++    item.type !== 1 ||
++    item.deletedDate ||
++    item.reprompt ||
++    typeof item.id !== "string" ||
++    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id) ||
++    !metadataText(item.name) ||
++    !record(item.login) ||
++    !metadataText(item.login.username)
++  )
++    return;
++  const origins = new Set<string>();
++  if (Array.isArray(item.login.uris)) {
++    for (const entry of item.login.uris) {
++      if (!record(entry) || typeof entry.uri !== "string" || entry.uri.length > 2048) continue;
++      try {
++        const url = new URL(entry.uri);
++        if (
++          url.protocol === "https:" &&
++          !url.username &&
++          !url.password &&
++          !url.port &&
++          url.hostname.length <= 253
++        )
++          origins.add(url.origin);
++      } catch {
++        // Invalid saved URLs do not become routing authority or tool output.
++      }
++      if (origins.size === 10) break;
++    }
++  }
++  return { itemId: item.id, name: item.name, username: item.login.username, origins: [...origins] };
++}
++
++/** The returned object remains in the desktop main process, never in renderer state. */
++export function createVaultCli(profilePath: string, device?: DeviceUnlock) {
++  let session: string | undefined;
++  let expires = 0;
++  let generation = 0;
++  let expiryTimer: ReturnType<typeof setTimeout> | undefined;
++  let locking: Promise<void> = Promise.resolve();
++  const children = new Map<NodeChildProcess.ChildProcess, () => void>();
++  let removalFailed = false;
++  let forgetting = 0;
++  const check = (current: number | null) => {
++    if (current !== null && current !== generation) throw new Error("unlock_cancelled");
++  };
++  const parsed = (output: string): unknown => {
++    try {
++      return JSON.parse(output);
++    } catch {
++      throw new Error("vault_cli_failed");
++    }
++  };
++
++  const run = async (
++    args: readonly string[],
++    input: { password?: string; code?: string; biometric?: boolean; key?: string } = {},
++    current: number | null = generation,
++  ): Promise<string> => {
++    check(current);
++    await NodeFSP.mkdir(profilePath, { recursive: true, mode: 0o700 });
++    check(current);
++    await NodeFSP.chmod(profilePath, 0o700);
++    check(current);
++    const env: Record<string, string> = {
++      HOME: NodeOS.homedir(),
++      PATH: "/opt/homebrew/bin:/usr/bin:/bin",
++      BITWARDENCLI_APPDATA_DIR: profilePath,
++      NODE_TLS_REJECT_UNAUTHORIZED: "1",
++      BITWARDEN_DESKTOP_PROXY_PATH: "/Applications/Bitwarden.app/Contents/MacOS/desktop_proxy",
++    };
++    if (input.key) env.BW_SESSION = input.key;
++    if (!input.biometric && !input.code) env.BW_NOINTERACTION = "true";
++    const command = [...args];
++    if (input.password !== undefined) command.push("--passwordfile", "/dev/fd/3");
++    return new Promise((resolve, reject) => {
++      const child = NodeChildProcess.spawn("/opt/homebrew/bin/bw", command, {
++        env,
++        stdio: ["pipe", "pipe", "pipe", "pipe"],
++      });
++      let output = "";
++      let diagnostics = "";
++      let suppliedCode = false;
++      let settled = false;
++      const finish = (ok: boolean) => {
++        if (settled) return;
++        settled = true;
++        clearTimeout(timer);
++        children.delete(child);
++        const result = output.trim();
++        output = diagnostics = "";
++        if (current !== null && current !== generation) reject(new Error("unlock_cancelled"));
++        else if (ok) resolve(result);
++        else reject(new Error("vault_cli_failed"));
++      };
++      // Only the captured child is terminated. CLI output must never reach logs.
++      const timer = setTimeout(() => {
++        child.kill();
++        finish(false);
++      }, 60_000);
++      if (current !== null)
++        children.set(child, () => {
++          child.kill();
++          finish(false);
++        });
++      child.stdout?.on("data", (chunk: Buffer) => {
++        if (settled) return;
++        output += chunk.toString("utf8");
++        if (output.length > MAX_OUTPUT) {
++          child.kill();
++          finish(false);
++        }
++      });
++      child.stderr?.on("data", (chunk: Buffer) => {
++        if (settled) return;
++        diagnostics = (diagnostics + chunk.toString("utf8")).slice(-4096);
++        if (input.code && !suppliedCode && diagnostics.includes("Two-step login code:")) {
++          suppliedCode = true;
++          child.stdin?.end(`${input.code}\n`);
++        }
++        // Never leave an invisible password prompt after a cancelled biometric request.
++        if (input.biometric && diagnostics.includes("Master password:")) {
++          child.kill();
++          finish(false);
++        }
++      });
++      child.on("error", () => finish(false));
++      child.on("close", (code) => finish(code === 0));
++      child.stdin?.on("error", () => {});
++      const passwordPipe = child.stdio[3] as NodeStream.Writable;
++      passwordPipe.on("error", () => {});
++      passwordPipe.end(input.password === undefined ? "" : `${input.password}\n`);
++      if (!input.code) child.stdin?.end();
++    });
++  };
++
++  const lock = () => {
++    generation++;
++    if (!forgetting) device?.cancel();
++    clearTimeout(expiryTimer);
++    session = undefined;
++    expires = 0;
++    for (const cancel of children.values()) cancel();
++    children.clear();
++    // bw lock invalidates the key sealed for this device. A request lock clears
++    // active access; the encrypted connection survives for the next fingerprint.
++    // Explicit device removal below also invalidates the CLI's backing state.
++    return locking;
++  };
++
++  const acceptKey = async (key: string, current: number) => {
++    if (generation !== current || !/^[A-Za-z0-9+/=]{40,500}$/.test(key))
++      throw new Error("unlock_cancelled");
++    const verified = parsed(await run(["status"], { key }, current)) as {
++      status: string;
++      userEmail?: string;
++      serverUrl?: string;
++    };
++    if (generation !== current) throw new Error("unlock_cancelled");
++    if (verified.userEmail !== OWNER || verified.serverUrl?.replace(/\/$/, "") !== SERVER)
++      throw new Error("wrong_vault_identity");
++    if (verified.status !== "unlocked") throw new Error("vault_session_invalidated");
++    await run(["sync"], { key }, current);
++    if (generation !== current) throw new Error("unlock_cancelled");
++    session = key;
++    expires = Date.now() + UNLOCK_MS;
++    clearTimeout(expiryTimer);
++    expiryTimer = setTimeout(lock, UNLOCK_MS);
++    expiryTimer.unref();
++  };
++
++  return {
++    lock,
++    isUnlocked: () => session !== undefined && Date.now() < expires,
++    deviceAvailable: () => device?.available() ?? false,
++    deviceEnrolled: () => device?.enrolled() ?? Promise.resolve(false),
++    async enrollDevice() {
++      const key = session;
++      const current = generation;
++      if (!device?.available() || !key || Date.now() >= expires)
++        throw new Error("device_enrollment_unavailable");
++      await device.enroll(key);
++      if (generation !== current) throw new Error("unlock_cancelled");
++    },
++    async unlockWithTouchId() {
++      if (!device?.available()) throw new Error("touch_id_unavailable");
++      const current = ++generation;
++      clearTimeout(expiryTimer);
++      session = undefined;
++      expires = 0;
++      await locking;
++      if (removalFailed) throw new Error("vault_device_removal_failed");
++      if (generation !== current) throw new Error("unlock_cancelled");
++      const key = await device.restore();
++      if (generation !== current) throw new Error("unlock_cancelled");
++      await acceptKey(key, current);
++    },
++    async forgetDevice() {
++      lock();
++      const previous = locking;
++      forgetting++;
++      const forgotten = device?.forget();
++      // Revocation survives ordinary request cancellation. No restore may pass
++      // until both local deletion and CLI invalidation have finished.
++      const revocation = Promise.allSettled([previous, forgotten, run(["lock"], {}, null)]).then(
++        (results) => {
++          forgetting--;
++          removalFailed = results.some((result) => result.status === "rejected");
++          if (removalFailed) throw new Error("vault_device_removal_failed");
++        },
++      );
++      locking = revocation.catch(() => {});
++      await revocation;
++    },
++    async unlock(password?: string, code?: string) {
++      const current = ++generation;
++      clearTimeout(expiryTimer);
++      session = undefined;
++      expires = 0;
++      await locking;
++      if (removalFailed) throw new Error("vault_device_removal_failed");
++      if (generation !== current) throw new Error("unlock_cancelled");
++      const status = parsed(await run(["status"], {}, current)) as {
++        status: string;
++        serverUrl?: string;
++        userEmail?: string;
++      };
++      let key: string;
++      if (status.status === "unauthenticated") {
++        if (!password) throw new Error("private_enrollment_required");
++        await run(["config", "server", SERVER], {}, current);
++        key = await run(
++          ["login", OWNER, "--method", "0", "--raw"],
++          {
++            password,
++            ...(code ? { code } : {}),
++          },
++          current,
++        );
++      } else {
++        if (status.serverUrl?.replace(/\/$/, "") !== SERVER || status.userEmail !== OWNER)
++          throw new Error("wrong_vault_identity");
++        key = await run(
++          ["unlock", "--raw"],
++          password === undefined ? { biometric: true } : { password },
++          current,
++        );
++      }
++      await acceptKey(key, current);
++    },
++    async searchAccounts(query: string): Promise<VaultAccountMetadata[]> {
++      if (!metadataText(query)) throw new Error("invalid_account_query");
++      const key = session;
++      if (!key) throw new Error("vault_locked");
++      const current = generation;
++      const requireSession = () => {
++        if (!key || current !== generation || Date.now() >= expires)
++          throw new Error("vault_locked");
++      };
++      requireSession();
++      let output: string;
++      try {
++        output = await run(["list", "items"], { key }, current);
++      } catch (error) {
++        requireSession();
++        throw error;
++      }
++      requireSession();
++      const items = parsed(output);
++      if (!Array.isArray(items)) throw new Error("vault_cli_failed");
++      const needle = query.trim().toLowerCase();
++      const results: VaultAccountMetadata[] = [];
++      const seen = new Set<string>();
++      for (const item of items) {
++        const metadata = accountMetadata(item);
++        if (!metadata || seen.has(metadata.itemId)) continue;
++        if (
++          ![metadata.name, metadata.username, ...metadata.origins].some((text) =>
++            text.toLowerCase().includes(needle),
++          )
++        )
++          continue;
++        seen.add(metadata.itemId);
++        results.push(metadata);
++        if (results.length === 50) break;
++      }
++      requireSession();
++      return results;
++    },
++    async credential(account: VaultAccount) {
++      const key = session;
++      const current = generation;
++      if (!key || Date.now() >= expires) {
++        lock();
++        throw new Error("vault_locked");
++      }
++      const item: unknown = parsed(
++        await run(["get", "item", account.vaultItemId], { key }, current),
++      );
++      if (generation !== current || Date.now() >= expires) throw new Error("vault_locked");
++      return credentialForAccount(item, account);
++    },
++  };
++}
+diff --git a/apps/desktop/src/preview/VaultConnection.test.ts b/apps/desktop/src/preview/VaultConnection.test.ts
+new file mode 100644
+index 000000000..f84af9200
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultConnection.test.ts
+@@ -0,0 +1,162 @@
++import { describe, expect, it, vi } from "vite-plus/test";
++import { createVaultConnection } from "./VaultConnection.ts";
++import type { createPrivateVaultLogin } from "./PrivateVaultLogin.ts";
++
++function setup() {
++  let authorized = true;
++  let state = "needs_approval";
++  const items = [
++    {
++      itemId: "11111111-1111-4111-8111-111111111111",
++      name: "GoDaddy A",
++      username: "a@example.com",
++      origins: ["https://sso.godaddy.com"],
++    },
++    {
++      itemId: "22222222-2222-4222-8222-222222222222",
++      name: "GoDaddy B",
++      username: "b@example.com",
++      origins: ["https://sso.godaddy.com"],
++    },
++    {
++      itemId: "33333333-3333-4333-8333-333333333333",
++      name: "Slack",
++      username: "a@example.com",
++      origins: ["https://slack.com"],
++    },
++  ];
++  const vault = {
++    start: vi.fn(async () => ({ state: "needs_approval" })),
++    status: vi.fn(() => ({ state, accounts: items })),
++    cancel: vi.fn(() => ({ state: "cancelled" })),
++  };
++  const target = { loadURL: vi.fn(async () => {}) };
++  const connection = createVaultConnection({
++    getVault: async () => vault as unknown as ReturnType<typeof createPrivateVaultLogin>,
++    getTab: () => ({
++      target: target as unknown as Electron.WebContents,
++      authorized: () => authorized,
++    }),
++  });
++  const search = () =>
++    connection.call("client", {
++      action: "search",
++      threadId: "thread",
++      tabId: "tab",
++      query: "GoDaddy",
++    });
++  return {
++    connection,
++    vault,
++    target,
++    search,
++    approveSearch: () => {
++      state = "accounts_ready";
++    },
++    revoke: () => {
++      authorized = false;
++    },
++  };
++}
++
++describe("persistent Vault native connection", () => {
++  it("cancels a pending native start immediately on disconnect and drops its late result", async () => {
++    const f = setup();
++    const started = Promise.withResolvers<void>();
++    const pending = Promise.withResolvers<{ state: string }>();
++    f.vault.start.mockImplementation(() => {
++      started.resolve();
++      return pending.promise;
++    });
++    const request = f.search();
++    await started.promise;
++    f.connection.disconnect("client");
++    expect(f.vault.cancel).toHaveBeenCalledOnce();
++    pending.resolve({ state: "needs_approval" });
++    expect(await request).toEqual({ state: "cancelled" });
++  });
++
++  it("returns explicit ambiguous metadata selections and binds them to this connection and tab", async () => {
++    const f = setup();
++    const request = await f.search();
++    f.approveSearch();
++    const ready = await f.connection.call("client", {
++      action: "status",
++      requestId: request.requestId,
++    });
++    const accounts = ready.accounts as Array<{ selectionId: string; supported: boolean }>;
++    expect(accounts).toHaveLength(3);
++    expect(accounts.map((x) => x.supported)).toEqual([true, true, false]);
++    expect(JSON.stringify(ready)).not.toContain("11111111");
++    expect(
++      await f.connection.call("other", { action: "status", requestId: request.requestId }),
++    ).toEqual({ state: "denied" });
++    expect(
++      await f.connection.call("other", {
++        action: "login",
++        threadId: "thread",
++        tabId: "tab",
++        selectionId: accounts[0]!.selectionId,
++      }),
++    ).toEqual({ state: "denied" });
++    expect(
++      await f.connection.call("client", {
++        action: "login",
++        threadId: "thread",
++        tabId: "different",
++        selectionId: accounts[0]!.selectionId,
++      }),
++    ).toEqual({ state: "denied" });
++    expect(
++      await f.connection.call("client", {
++        action: "login",
++        threadId: "thread",
++        tabId: "tab",
++        selectionId: accounts[2]!.selectionId,
++      }),
++    ).toEqual({ state: "unsupported_provider" });
++    expect(f.target.loadURL).not.toHaveBeenCalled();
++  });
++
++  it("starts each subsequent selected login with fresh private approval and rejects stale ownership", async () => {
++    const f = setup();
++    const request = await f.search();
++    f.approveSearch();
++    const ready = await f.connection.call("client", {
++      action: "status",
++      requestId: request.requestId,
++    });
++    const selectionId = (ready.accounts as Array<{ selectionId: string }>)[0]!.selectionId;
++    const input = { action: "login", threadId: "thread", tabId: "tab", selectionId };
++    expect((await f.connection.call("client", input)).state).toBe("needs_approval");
++    expect((await f.connection.call("client", input)).state).toBe("needs_approval");
++    expect(f.vault.start).toHaveBeenCalledTimes(3);
++    const sessionIds = f.vault.start.mock.calls.map(
++      (call) => (call as unknown as [{ agentSessionId: string }])[0].agentSessionId,
++    );
++    expect(new Set(sessionIds).size).toBe(3);
++    f.revoke();
++    expect((await f.connection.call("client", input)).state).toBe("denied");
++  });
++
++  it("disconnect cancels current private work and invalidates all account selection handles", async () => {
++    const f = setup();
++    const request = await f.search();
++    f.approveSearch();
++    const ready = await f.connection.call("client", {
++      action: "status",
++      requestId: request.requestId,
++    });
++    const selectionId = (ready.accounts as Array<{ selectionId: string }>)[0]!.selectionId;
++    f.connection.disconnect("client");
++    expect(f.vault.cancel).toHaveBeenCalledOnce();
++    expect(
++      await f.connection.call("client", {
++        action: "login",
++        threadId: "thread",
++        tabId: "tab",
++        selectionId,
++      }),
++    ).toEqual({ state: "denied" });
++  });
++});
+diff --git a/apps/desktop/src/preview/VaultConnection.ts b/apps/desktop/src/preview/VaultConnection.ts
+new file mode 100644
+index 000000000..7766b9dbc
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultConnection.ts
+@@ -0,0 +1,182 @@
++// @effect-diagnostics nodeBuiltinImport:off globalDate:off -- Native broker capability IDs and bounded selection deadlines.
++import * as NodeCrypto from "node:crypto";
++import { accountFromMetadata, type VaultAccountMetadata } from "./VaultLoginPolicy.ts";
++import type { createPrivateVaultLogin } from "./PrivateVaultLogin.ts";
++
++type Tab = { target: Electron.WebContents; authorized: () => boolean };
++type Key = { threadId: string; tabId: string; agentSessionId: string };
++type Request = {
++  connectionId: string;
++  key: Key;
++  tab: Tab;
++  kind: "search" | "login";
++  expires: number;
++  accounts?: Array<{
++    selectionId: string;
++    name: string;
++    username: string;
++    origins: readonly string[];
++    supported: boolean;
++  }>;
++};
++const token = () => NodeCrypto.randomBytes(24).toString("base64url");
++const validKey = (v: unknown): v is string =>
++  typeof v === "string" &&
++  v.length > 0 &&
++  v.length <= 300 &&
++  ![...v].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127);
++
++/** The socket supplies the connection identity; requester thread labels are untrusted.
++ * Actual tab binding, human consent and fresh biometric approval remain native. */
++export function createVaultConnection(options: {
++  getTab: (threadId: string, tabId: string) => Tab | undefined;
++  getVault: () => Promise<ReturnType<typeof createPrivateVaultLogin>>;
++}) {
++  const generations = new Map<string, number>();
++  const requests = new Map<string, Request>();
++  const selections = new Map<
++    string,
++    { connectionId: string; request: Request; item: VaultAccountMetadata }
++  >();
++  let vault: ReturnType<typeof createPrivateVaultLogin> | undefined;
++  const clear = (client: string) => {
++    for (const [id, request] of requests)
++      if (request.connectionId === client) {
++        vault?.cancel(request.key);
++        requests.delete(id);
++      }
++    for (const [id, selection] of selections)
++      if (selection.connectionId === client) selections.delete(id);
++  };
++  const prune = () => {
++    for (const [id, request] of requests)
++      if (request.expires <= Date.now() || !request.tab.authorized()) {
++        vault?.cancel(request.key);
++        requests.delete(id);
++        for (const [ref, selection] of selections)
++          if (selection.request === request) selections.delete(ref);
++      }
++  };
++  return {
++    disconnect(client: string) {
++      generations.set(client, (generations.get(client) ?? 0) + 1);
++      clear(client);
++    },
++    async call(client: string, input: unknown): Promise<Record<string, unknown>> {
++      const generation = generations.get(client) ?? 0;
++      prune();
++      if (!input || typeof input !== "object") return { state: "denied" };
++      const data = input as Record<string, unknown>;
++      if (data.action === "connection") return { state: "idle" };
++      vault ??= await options.getVault();
++      if ((generations.get(client) ?? 0) !== generation) return { state: "cancelled" };
++      if (data.action === "status" || data.action === "cancel") {
++        const request =
++          typeof data.requestId === "string" ? requests.get(data.requestId) : undefined;
++        if (!request || request.connectionId !== client) return { state: "denied" };
++        if (data.action === "cancel") {
++          const value = vault.cancel(request.key);
++          requests.delete(data.requestId as string);
++          for (const [id, selection] of selections)
++            if (selection.request === request) selections.delete(id);
++          return { state: value.state };
++        }
++        const value = vault.status(request.key);
++        if (request.kind === "search" && value.state === "accounts_ready") {
++          request.accounts ??= (value.accounts ?? []).slice(0, 50).map((item) => {
++            const selectionId = token();
++            selections.set(selectionId, { connectionId: client, request, item });
++            return {
++              selectionId,
++              name: item.name,
++              username: item.username,
++              origins: item.origins,
++              supported: accountFromMetadata(item) !== undefined,
++            };
++          });
++          return { state: "accounts_ready", requestId: data.requestId, accounts: request.accounts };
++        }
++        return { state: value.state, requestId: data.requestId };
++      }
++      if (!validKey(data.threadId) || !validKey(data.tabId)) return { state: "denied" };
++      const source = options.getTab(data.threadId, data.tabId);
++      const tab = source && {
++        target: source.target,
++        authorized: () => source.authorized() && (generations.get(client) ?? 0) === generation,
++      };
++      if (!tab || !tab.authorized()) return { state: "denied" };
++      const key = {
++        threadId: data.threadId,
++        tabId: data.tabId,
++        agentSessionId: `${client}/${token()}`,
++      };
++      if (requests.size >= 100) return { state: "busy" };
++      if (data.action === "search") {
++        if (
++          typeof data.query !== "string" ||
++          !data.query.trim() ||
++          data.query.length > 200 ||
++          [...data.query].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
++        )
++          return { state: "denied" };
++        clear(client);
++        const requestId = token();
++        requests.set(requestId, {
++          connectionId: client,
++          key,
++          tab,
++          kind: "search",
++          expires: Date.now() + 600_000,
++        });
++        const value = await vault.start(key, tab.target, { query: data.query }, tab.authorized);
++        if (!tab.authorized()) {
++          vault.cancel(key);
++          requests.delete(requestId);
++          return { state: "cancelled" };
++        }
++        if (value.state !== "needs_approval") {
++          requests.delete(requestId);
++          return { state: value.state };
++        }
++        return { state: value.state, requestId };
++      }
++      if (data.action === "login") {
++        const selected =
++          typeof data.selectionId === "string" ? selections.get(data.selectionId) : undefined;
++        if (
++          !selected ||
++          selected.connectionId !== client ||
++          selected.request.key.threadId !== key.threadId ||
++          selected.request.key.tabId !== key.tabId ||
++          !selected.request.tab.authorized()
++        )
++          return { state: "denied" };
++        const account = accountFromMetadata(selected.item);
++        if (!account) return { state: "unsupported_provider" };
++        // Fixed adapter route only; agent arguments never contain a target URL.
++        await tab.target.loadURL(account.loginUrl);
++        if (!tab.authorized() || !selected.request.tab.authorized()) return { state: "denied" };
++        const requestId = token();
++        requests.set(requestId, {
++          connectionId: client,
++          key,
++          tab,
++          kind: "login",
++          expires: Date.now() + 600_000,
++        });
++        const value = await vault.start(key, tab.target, account, tab.authorized);
++        if (!tab.authorized()) {
++          vault.cancel(key);
++          requests.delete(requestId);
++          return { state: "cancelled" };
++        }
++        if (value.state !== "needs_approval") {
++          requests.delete(requestId);
++          return { state: value.state };
++        }
++        return { state: value.state, requestId };
++      }
++      return { state: "denied" };
++    },
++  };
++}
+diff --git a/apps/desktop/src/preview/VaultDeviceUnlock.test.ts b/apps/desktop/src/preview/VaultDeviceUnlock.test.ts
+new file mode 100644
+index 000000000..cc027f525
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultDeviceUnlock.test.ts
+@@ -0,0 +1,657 @@
++// @effect-diagnostics nodeBuiltinImport:off -- All filesystem and Electron calls below use in-memory ports.
++import { describe, expect, it, vi } from "vite-plus/test";
++
++type Entry = {
++  kind: "file" | "directory" | "symlink";
++  uid: number;
++  mode: number;
++  ino: number;
++  nlink: number;
++  bytes: Buffer;
++  size?: number;
++};
++
++const port = vi.hoisted(() => ({
++  entries: new Map<string, Entry>(),
++  events: [] as string[],
++  inode: 100,
++  uid: 0,
++  after: async (_event: string): Promise<void> => {},
++  touch: vi.fn<() => boolean>(),
++  encryption: vi.fn<() => boolean>(),
++  prompt: vi.fn<(reason: string) => Promise<void>>(),
++  encrypt: vi.fn<(value: string) => Buffer>(),
++  decrypt: vi.fn<(value: Buffer) => string>(),
++}));
++
++vi.mock("electron", () => ({
++  systemPreferences: { canPromptTouchID: port.touch, promptTouchID: port.prompt },
++  safeStorage: {
++    isEncryptionAvailable: port.encryption,
++    encryptString: port.encrypt,
++    decryptString: port.decrypt,
++  },
++}));
++vi.mock("node:fs", () => ({
++  constants: {
++    O_RDONLY: 0,
++    O_WRONLY: 1,
++    O_CREAT: 512,
++    O_EXCL: 2048,
++    O_NOFOLLOW: 256,
++    O_NONBLOCK: 4,
++  },
++}));
++vi.mock("node:fs/promises", () => {
++  const missing = () => Object.assign(new Error("PRIVATE_FS_DETAIL"), { code: "ENOENT" });
++  const get = (path: string) => {
++    const entry = port.entries.get(path);
++    if (!entry) throw missing();
++    return entry;
++  };
++  const stat = (entry: Entry) => ({
++    uid: entry.uid,
++    mode: entry.mode,
++    dev: 1,
++    ino: entry.ino,
++    nlink: entry.nlink,
++    size: entry.size ?? entry.bytes.length,
++    mtimeMs: 1,
++    ctimeMs: 1,
++    isFile: () => entry.kind === "file",
++    isDirectory: () => entry.kind === "directory",
++    isSymbolicLink: () => entry.kind === "symlink",
++  });
++  const event = async (name: string) => {
++    port.events.push(name);
++    await port.after(name);
++  };
++  return {
++    lstat: async (path: string) => {
++      const value = stat(get(path));
++      await event(`lstat:${path}`);
++      return value;
++    },
++    mkdir: async (path: string, options: { mode: number }) => {
++      if (port.entries.has(path))
++        throw Object.assign(new Error("PRIVATE_FS_DETAIL"), { code: "EEXIST" });
++      port.entries.set(path, {
++        kind: "directory",
++        uid: port.uid,
++        mode: options.mode,
++        ino: ++port.inode,
++        nlink: 1,
++        bytes: Buffer.alloc(0),
++      });
++      await event(`mkdir:${path}`);
++    },
++    open: async (path: string, flags: number, mode?: number) => {
++      if (flags & 512) {
++        if (port.entries.has(path))
++          throw Object.assign(new Error("PRIVATE_FS_DETAIL"), { code: "EEXIST" });
++        port.entries.set(path, {
++          kind: "file",
++          uid: port.uid,
++          mode: mode ?? 0,
++          ino: ++port.inode,
++          nlink: 1,
++          bytes: Buffer.alloc(0),
++        });
++      }
++      const entry = get(path);
++      if (entry.kind === "symlink") throw new Error("PRIVATE_FS_DETAIL");
++      await event(`open:${path}:${flags}`);
++      return {
++        stat: async () => {
++          const value = stat(entry);
++          await event(`stat:${path}`);
++          return value;
++        },
++        read: async (buffer: Buffer, offset: number, length: number) => {
++          const bytesRead = entry.bytes.copy(buffer, offset, 0, length);
++          await event(`read:${path}`);
++          return { bytesRead, buffer };
++        },
++        writeFile: async (bytes: Buffer) => {
++          entry.bytes = Buffer.from(bytes);
++          await event(`write:${path}`);
++        },
++        sync: async () => event(`sync:${path}`),
++        close: async () => event(`close:${path}`),
++      };
++    },
++    rename: async (source: string, target: string) => {
++      port.entries.set(target, get(source));
++      port.entries.delete(source);
++      await event(`rename:${target}`);
++    },
++    unlink: async (path: string) => {
++      get(path);
++      port.entries.delete(path);
++      await event(`unlink:${path}`);
++    },
++  };
++});
++
++import { createVaultDeviceUnlock } from "./VaultDeviceUnlock.ts";
++
++const path = "/fixture/private/enrollment.json";
++const key = "QUFB".repeat(22);
++const encrypted = Buffer.from("OS_ENCRYPTED_FIXTURE_BYTES_ONLY");
++const binding = {
++  version: 1,
++  server: "https://vault.scaleadvertisement.com",
++  owner: "businessabhish@gmail.com",
++};
++const sealed = { ...binding, encrypted: encrypted.toString("base64") };
++const failed = /^vault_device_unlock_failed$/;
++const cancelled = /^vault_device_unlock_cancelled$/;
++const unavailable = /^vault_device_unlock_unavailable$/;
++
++function setup(platform = "darwin") {
++  const descriptor = Object.getOwnPropertyDescriptor(process, "platform")!;
++  Object.defineProperty(process, "platform", { value: platform });
++  port.entries.clear();
++  port.events.length = 0;
++  port.inode = 100;
++  port.uid = process.getuid!();
++  port.after = async () => {};
++  port.touch.mockReset().mockReturnValue(true);
++  port.encryption.mockReset().mockReturnValue(true);
++  port.prompt.mockReset().mockImplementation(async () => {
++    port.events.push("prompt:success");
++  });
++  port.encrypt.mockReset().mockReturnValue(encrypted);
++  port.decrypt.mockReset().mockImplementation(() => {
++    port.events.push("decrypt");
++    return JSON.stringify({ ...binding, key });
++  });
++  const put = (name: string, changes: Partial<Entry> = {}) => {
++    const entry: Entry = {
++      kind: "file",
++      uid: port.uid,
++      mode: 0o600,
++      ino: ++port.inode,
++      nlink: 1,
++      bytes: Buffer.from(JSON.stringify(sealed)),
++      ...changes,
++    };
++    port.entries.set(name, entry);
++    return entry;
++  };
++  put("/", { kind: "directory", mode: 0o755 });
++  put("/fixture", { kind: "directory", mode: 0o755 });
++  put("/fixture/private", { kind: "directory", mode: 0o700 });
++  const file = put(path);
++  return {
++    vault: createVaultDeviceUnlock(path),
++    file,
++    put,
++    [Symbol.dispose]() {
++      Object.defineProperty(process, "platform", descriptor);
++    },
++  };
++}
++
++describe("private vault device unlock", () => {
++  it("preserves ciphertext across cancellation and requires approval in a fresh adapter", async () => {
++    using fixture = setup();
++    const before = Buffer.from(fixture.file.bytes);
++    expect(await fixture.vault.restore()).toBe(key);
++    fixture.vault.cancel();
++    const restarted = createVaultDeviceUnlock(path);
++    expect(await restarted.enrolled()).toBe(true);
++    expect(port.prompt).toHaveBeenCalledTimes(1);
++    expect(await restarted.restore()).toBe(key);
++    expect(port.prompt).toHaveBeenCalledTimes(2);
++    expect(port.entries.get(path)?.bytes).toEqual(before);
++    expect(port.encrypt).not.toHaveBeenCalled();
++  });
++
++  it("does not restore an explicitly forgotten enrollment in a fresh adapter", async () => {
++    using fixture = setup();
++    await fixture.vault.forget();
++    const restarted = createVaultDeviceUnlock(path);
++    expect(await restarted.enrolled()).toBe(false);
++    await expect(restarted.restore()).rejects.toThrow(failed);
++    expect(port.decrypt).not.toHaveBeenCalled();
++    expect(port.entries.has(path)).toBe(false);
++  });
++
++  it("exposes metadata without prompting or decrypting", async () => {
++    using fixture = setup();
++    expect(fixture.vault.available()).toBe(true);
++    expect(await fixture.vault.enrolled()).toBe(true);
++    expect(port.prompt).not.toHaveBeenCalled();
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("prompts successfully before reading or decrypting and returns only the key", async () => {
++    using fixture = setup();
++    expect(await fixture.vault.restore()).toBe(key);
++    expect(port.events[0]).toBe("prompt:success");
++    expect(port.events.indexOf(`read:${path}`)).toBeLessThan(port.events.indexOf("decrypt"));
++    expect(port.decrypt).toHaveBeenCalledWith(encrypted);
++    expect(port.events).toContain(`open:${path}:260`);
++  });
++
++  it("does not inspect or decrypt the enrollment when Touch ID is cancelled", async () => {
++    using fixture = setup();
++    port.prompt.mockRejectedValue(new Error("PRIVATE_TOUCH_ID_DETAIL"));
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++    expect(port.events).toEqual([]);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("writes only ciphertext and public bindings using a private atomic file", async () => {
++    using fixture = setup();
++    port.entries.delete(path);
++    port.entries.delete("/fixture/private");
++    await fixture.vault.enroll(key);
++    const stored = port.entries.get(path)!;
++    expect(stored.bytes.toString()).toBe(JSON.stringify(sealed));
++    expect(stored.bytes.toString()).not.toContain(key);
++    expect(stored.mode).toBe(0o600);
++    expect(port.entries.get("/fixture/private")?.mode).toBe(0o700);
++    expect(port.encrypt).toHaveBeenCalledWith(JSON.stringify({ ...binding, key }));
++    expect(port.events[0]).toBe("prompt:success");
++    expect(port.events.some((event) => event.startsWith("sync:"))).toBe(true);
++    expect(port.events).toContain(`rename:${path}`);
++    expect([...port.entries.keys()].some((name) => name.endsWith(".tmp"))).toBe(false);
++  });
++
++  it("does not encrypt or write after a cancelled enrollment prompt", async () => {
++    using fixture = setup();
++    const original = fixture.file.bytes;
++    port.prompt.mockRejectedValue(new Error("PRIVATE_TOUCH_ID_DETAIL"));
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(failed);
++    expect(port.encrypt).not.toHaveBeenCalled();
++    expect(port.events).toEqual([]);
++    expect(fixture.file.bytes).toBe(original);
++  });
++
++  it.each(["short", "A".repeat(501), "A".repeat(40) + "\n", "!".repeat(88)])(
++    "refuses an invalid key before prompting: %s",
++    async (invalid) => {
++      using fixture = setup();
++      await expect(fixture.vault.enroll(invalid)).rejects.toThrow(failed);
++      expect(port.prompt).not.toHaveBeenCalled();
++      expect(port.encrypt).not.toHaveBeenCalled();
++    },
++  );
++
++  it.each([
++    { version: 2 },
++    { server: "https://other.example.com" },
++    { owner: "wrong@example.com" },
++    { encrypted: "not base64!!!" },
++    { encrypted: "AA==" },
++    { encrypted: encrypted.toString("base64").replace(/=$/, "") },
++    { encrypted: Buffer.alloc(8193).toString("base64") },
++    { key },
++  ])("refuses an invalid envelope without decrypting: %j", async (change) => {
++    using fixture = setup();
++    fixture.file.bytes = Buffer.from(JSON.stringify({ ...sealed, ...change }));
++    expect(await fixture.vault.enrolled()).toBe(false);
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it.each([
++    { kind: "symlink" as const },
++    { kind: "directory" as const },
++    { uid: -1 },
++    { mode: 0o644 },
++    { mode: 0o400 },
++    { mode: 0o4600 },
++    { nlink: 2 },
++    { size: 16385 },
++    { size: 0 },
++  ])("refuses unsafe file metadata without reading: %j", async (change) => {
++    using fixture = setup();
++    Object.assign(fixture.file, change);
++    expect(await fixture.vault.enrolled()).toBe(false);
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++    await expect(fixture.vault.forget()).rejects.toThrow(failed);
++    expect(port.events.some((event) => event.startsWith("read:"))).toBe(false);
++    expect(port.entries.has(path)).toBe(true);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it.each([{ kind: "symlink" as const }, { uid: -1 }, { mode: 0o755 }, { mode: 0o770 }])(
++    "refuses unsafe parent directories without weakening permissions: %j",
++    async (change) => {
++      using fixture = setup();
++      Object.assign(port.entries.get("/fixture/private")!, change);
++      await expect(fixture.vault.restore()).rejects.toThrow(failed);
++      await expect(fixture.vault.enroll(key)).rejects.toThrow(failed);
++      expect(port.decrypt).not.toHaveBeenCalled();
++      expect(port.events.some((event) => event.startsWith("write:"))).toBe(false);
++      expect(port.entries.get("/fixture/private")).toMatchObject(change);
++    },
++  );
++
++  it("refuses a symlink in an ancestor directory", async () => {
++    using fixture = setup();
++    port.entries.get("/fixture")!.kind = "symlink";
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++    expect(port.decrypt).not.toHaveBeenCalled();
++    expect(port.events.some((event) => event.startsWith("read:"))).toBe(false);
++  });
++
++  it.each(["{broken", "null", "[]", " ", "\ufffd"])(
++    "refuses malformed content and preserves it on forget: %s",
++    async (value) => {
++      using fixture = setup();
++      fixture.file.bytes = Buffer.from(value);
++      expect(await fixture.vault.enrolled()).toBe(false);
++      await expect(fixture.vault.restore()).rejects.toThrow(failed);
++      await expect(fixture.vault.forget()).rejects.toThrow(failed);
++      expect(port.entries.has(path)).toBe(true);
++      expect(port.decrypt).not.toHaveBeenCalled();
++    },
++  );
++
++  it.each([
++    { ...binding, key, version: 2 },
++    { ...binding, key, owner: "wrong@example.com" },
++    { ...binding, key, server: "https://other.example.com" },
++    { ...binding, key: "short" },
++    { ...binding, key, password: "FIXTURE_ONLY" },
++    null,
++  ])("checks the encrypted payload binding and shape: %j", async (value) => {
++    using fixture = setup();
++    port.decrypt.mockReturnValue(JSON.stringify(value));
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++  });
++
++  it("handles a missing enrollment without decrypting or creating one", async () => {
++    using fixture = setup();
++    port.entries.delete(path);
++    expect(await fixture.vault.enrolled()).toBe(false);
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++    await fixture.vault.forget();
++    expect(port.decrypt).not.toHaveBeenCalled();
++    expect(port.entries.has(path)).toBe(false);
++  });
++
++  it("forgets only the owned sealed enrollment without decrypting or prompting", async () => {
++    using fixture = setup();
++    const unrelated = fixture.put("/fixture/private/cli.json");
++    await fixture.vault.forget();
++    expect(port.entries.has(path)).toBe(false);
++    expect(port.entries.get("/fixture/private/cli.json")).toBe(unrelated);
++    expect(port.entries.has("/fixture/private")).toBe(true);
++    expect(port.prompt).not.toHaveBeenCalled();
++    expect(port.decrypt).not.toHaveBeenCalled();
++    expect(await fixture.vault.enrolled()).toBe(false);
++  });
++
++  it.each(["linux", "win32"])("fails closed on unsupported platform %s", async (platform) => {
++    using fixture = setup(platform);
++    expect(fixture.vault.available()).toBe(false);
++    expect(await fixture.vault.enrolled()).toBe(false);
++    await expect(fixture.vault.restore()).rejects.toThrow(unavailable);
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(unavailable);
++    await expect(fixture.vault.forget()).rejects.toThrow(unavailable);
++    expect(port.events).toEqual([]);
++    expect(port.touch).not.toHaveBeenCalled();
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("fails closed when Touch ID is unavailable", async () => {
++    using fixture = setup();
++    port.touch.mockReturnValue(false);
++    expect(fixture.vault.available()).toBe(false);
++    await expect(fixture.vault.restore()).rejects.toThrow(unavailable);
++    expect(port.prompt).not.toHaveBeenCalled();
++    expect(port.events).toEqual([]);
++  });
++
++  it("fails closed when OS encryption is unavailable", async () => {
++    using fixture = setup();
++    port.encryption.mockReturnValue(false);
++    expect(fixture.vault.available()).toBe(false);
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(unavailable);
++    await expect(fixture.vault.restore()).rejects.toThrow(unavailable);
++    expect(port.prompt).not.toHaveBeenCalled();
++    expect(port.events).toEqual([]);
++    expect(port.encrypt).not.toHaveBeenCalled();
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("does not expose underlying capability errors", async () => {
++    using fixture = setup();
++    port.touch.mockImplementation(() => {
++      throw new Error("PRIVATE_OS_DETAIL");
++    });
++    expect(fixture.vault.available()).toBe(false);
++    await expect(fixture.vault.restore()).rejects.toThrow(unavailable);
++  });
++
++  it("does not expose underlying encryption errors or write a replacement", async () => {
++    using fixture = setup();
++    port.encrypt.mockImplementation(() => {
++      throw new Error("PRIVATE_OS_DETAIL");
++    });
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(failed);
++    expect(port.events).toEqual(["prompt:success"]);
++    expect(port.entries.get(path)).toBe(fixture.file);
++  });
++
++  it("does not expose underlying decryption errors", async () => {
++    using fixture = setup();
++    port.decrypt.mockImplementation(() => {
++      throw new Error("PRIVATE_OS_DETAIL");
++    });
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++  });
++
++  it("rechecks encryption availability after the Touch ID prompt", async () => {
++    using fixture = setup();
++    port.prompt.mockImplementation(async () => {
++      port.encryption.mockReturnValue(false);
++    });
++    await expect(fixture.vault.restore()).rejects.toThrow(unavailable);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("invalidates a pending restore prompt before any filesystem access", async () => {
++    using fixture = setup();
++    const started = Promise.withResolvers<void>();
++    const prompt = Promise.withResolvers<void>();
++    port.prompt.mockImplementation(() => {
++      started.resolve();
++      return prompt.promise;
++    });
++    const restoring = fixture.vault.restore();
++    await started.promise;
++    fixture.vault.cancel();
++    prompt.resolve();
++    await expect(restoring).rejects.toThrow(cancelled);
++    expect(port.events).toEqual([]);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("invalidates a pending enrollment prompt before encryption or writing", async () => {
++    using fixture = setup();
++    const started = Promise.withResolvers<void>();
++    const prompt = Promise.withResolvers<void>();
++    port.prompt.mockImplementation(() => {
++      started.resolve();
++      return prompt.promise;
++    });
++    const enrolling = fixture.vault.enroll(key);
++    await started.promise;
++    fixture.vault.cancel();
++    prompt.resolve();
++    await expect(enrolling).rejects.toThrow(cancelled);
++    expect(port.encrypt).not.toHaveBeenCalled();
++    expect(port.events).toEqual([]);
++  });
++
++  it.each([`open:${path}:260`, `read:${path}`, `close:${path}`])(
++    "stops before decrypt when cancelled during %s",
++    async (target) => {
++      using fixture = setup();
++      port.after = async (event) => {
++        if (event === target) fixture.vault.cancel();
++      };
++      await expect(fixture.vault.restore()).rejects.toThrow(cancelled);
++      expect(port.decrypt).not.toHaveBeenCalled();
++      expect(port.events).toContain(`close:${path}`);
++    },
++  );
++
++  it("does not return a key if cancellation occurs during decryption", async () => {
++    using fixture = setup();
++    port.decrypt.mockImplementation(() => {
++      fixture.vault.cancel();
++      return JSON.stringify({ ...binding, key });
++    });
++    await expect(fixture.vault.restore()).rejects.toThrow(cancelled);
++  });
++
++  it.each(["open:", "write:", "sync:", "close:"])(
++    "cleans up temporary enrollment on cancellation during %s",
++    async (target) => {
++      using fixture = setup();
++      port.entries.delete(path);
++      port.after = async (event) => {
++        if (event.startsWith(target) && event.includes(".tmp")) fixture.vault.cancel();
++      };
++      await expect(fixture.vault.enroll(key)).rejects.toThrow(cancelled);
++      expect(port.entries.has(path)).toBe(false);
++      expect([...port.entries.keys()].some((name) => name.endsWith(".tmp"))).toBe(false);
++    },
++  );
++
++  it("removes a late-published enrollment if cancel races the atomic rename", async () => {
++    using fixture = setup();
++    port.after = async (event) => {
++      if (event === `rename:${path}`) fixture.vault.cancel();
++    };
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(cancelled);
++    expect(port.entries.has(path)).toBe(false);
++    expect([...port.entries.keys()].some((name) => name.endsWith(".tmp"))).toBe(false);
++  });
++
++  it("does not delete a replacement file during late-cancel cleanup", async () => {
++    using fixture = setup();
++    let replacement: Entry | undefined;
++    port.after = async (event) => {
++      if (event === `rename:${path}`) {
++        replacement = fixture.put(path, { bytes: Buffer.from("unrelated") });
++        fixture.vault.cancel();
++      }
++    };
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(cancelled);
++    expect(port.entries.get(path)).toBe(replacement);
++  });
++
++  it("forget cancels pending enrollment and waits for cleanup without resurrecting it", async () => {
++    using fixture = setup();
++    const unrelated = fixture.put("/fixture/private/cli.json");
++    let forgetting: Promise<void> | undefined;
++    port.after = async (event) => {
++      if (event === `rename:${path}`) forgetting = fixture.vault.forget();
++    };
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(cancelled);
++    expect(forgetting).toBeDefined();
++    await forgetting;
++    expect(port.entries.has(path)).toBe(false);
++    expect(port.entries.get("/fixture/private/cli.json")).toBe(unrelated);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("refuses an inode replaced between metadata inspection and open", async () => {
++    using fixture = setup();
++    port.after = async (event) => {
++      if (event === `lstat:${path}`) fixture.put(path);
++    };
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++    expect(port.events.some((event) => event.startsWith("read:"))).toBe(false);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("refuses growth beyond the bounded read and never decrypts it", async () => {
++    using fixture = setup();
++    port.after = async (event) => {
++      if (event.startsWith(`open:${path}:`)) fixture.file.bytes = Buffer.alloc(32 * 1024);
++    };
++    await expect(fixture.vault.restore()).rejects.toThrow(failed);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("does not overwrite malformed existing enrollment", async () => {
++    using fixture = setup();
++    fixture.file.bytes = Buffer.from("unrelated");
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(failed);
++    expect(port.entries.get(path)).toBe(fixture.file);
++    expect(port.events.some((event) => event.startsWith("write:"))).toBe(false);
++  });
++
++  it("removes an incomplete temporary file on a write failure and preserves the old enrollment", async () => {
++    using fixture = setup();
++    port.after = async (event) => {
++      if (event.startsWith("write:")) throw new Error("PRIVATE_FILESYSTEM_DETAIL");
++    };
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(failed);
++    expect(port.entries.get(path)).toBe(fixture.file);
++    expect([...port.entries.keys()].some((name) => name.endsWith(".tmp"))).toBe(false);
++  });
++
++  it("does not overwrite an enrollment replaced while the temporary file is being saved", async () => {
++    using fixture = setup();
++    let replacement: Entry | undefined;
++    port.after = async (event) => {
++      if (event.startsWith("write:")) replacement = fixture.put(path);
++    };
++    await expect(fixture.vault.enroll(key)).rejects.toThrow(failed);
++    expect(port.entries.get(path)).toBe(replacement);
++    expect(port.events).not.toContain(`rename:${path}`);
++    expect([...port.entries.keys()].some((name) => name.endsWith(".tmp"))).toBe(false);
++  });
++
++  it.each(["touch", "encryption"] as const)(
++    "removes the saved connection when %s is unavailable without unsealing it",
++    async (capability) => {
++      using fixture = setup();
++      port[capability].mockReturnValue(false);
++      expect(fixture.vault.available()).toBe(false);
++      await fixture.vault.forget();
++      expect(port.entries.has(path)).toBe(false);
++      expect(port.prompt).not.toHaveBeenCalled();
++      expect(port.decrypt).not.toHaveBeenCalled();
++      await expect(fixture.vault.restore()).rejects.toThrow(unavailable);
++    },
++  );
++
++  it("cancels a pending restore before forgetting its enrollment", async () => {
++    using fixture = setup();
++    const started = Promise.withResolvers<void>();
++    const prompt = Promise.withResolvers<void>();
++    port.prompt.mockImplementation(() => {
++      started.resolve();
++      return prompt.promise;
++    });
++    const restoring = fixture.vault.restore();
++    await started.promise;
++    const forgetting = fixture.vault.forget();
++    prompt.resolve();
++    await expect(restoring).rejects.toThrow(cancelled);
++    await forgetting;
++    expect(port.entries.has(path)).toBe(false);
++    expect(port.decrypt).not.toHaveBeenCalled();
++  });
++
++  it("permits a new restore after cancellation while refusing previously queued work", async () => {
++    using fixture = setup();
++    const stale = fixture.vault.restore();
++    fixture.vault.cancel();
++    await expect(stale).rejects.toThrow(cancelled);
++    expect(port.prompt).not.toHaveBeenCalled();
++    expect(await fixture.vault.restore()).toBe(key);
++    expect(port.prompt).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/apps/desktop/src/preview/VaultDeviceUnlock.ts b/apps/desktop/src/preview/VaultDeviceUnlock.ts
+new file mode 100644
+index 000000000..6190e183c
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultDeviceUnlock.ts
+@@ -0,0 +1,340 @@
++// @effect-diagnostics nodeBuiltinImport:off -- This private main-process adapter owns local sealed storage.
++/* oxlint-disable eslint/preserve-caught-error -- OS and Keychain causes may contain private diagnostics; this boundary exposes fixed errors only. */
++import * as NodeCrypto from "node:crypto";
++import * as NodeFS from "node:fs";
++import * as NodeFSP from "node:fs/promises";
++import * as NodePath from "node:path";
++
++import { safeStorage, systemPreferences } from "electron";
++
++const SERVER = "https://vault.scaleadvertisement.com";
++const OWNER = "businessabhish@gmail.com";
++const MAX_FILE_BYTES = 16 * 1024;
++const MAX_ENCRYPTED_BYTES = 8 * 1024;
++const KEY = /^[A-Za-z0-9+/=]{40,500}$/;
++const FAILED = "vault_device_unlock_failed";
++const CANCELLED = "vault_device_unlock_cancelled";
++const UNAVAILABLE = "vault_device_unlock_unavailable";
++
++function bound(value: unknown): value is Record<string, unknown> {
++  return (
++    typeof value === "object" &&
++    value !== null &&
++    "version" in value &&
++    value.version === 1 &&
++    "server" in value &&
++    value.server === SERVER &&
++    "owner" in value &&
++    value.owner === OWNER
++  );
++}
++
++function ciphertext(bytes: Buffer): Buffer {
++  const value: unknown = JSON.parse(bytes.toString("utf8"));
++  if (
++    !bound(value) ||
++    Object.keys(value).sort().join(",") !== "encrypted,owner,server,version" ||
++    typeof value.encrypted !== "string" ||
++    value.encrypted.length > MAX_ENCRYPTED_BYTES * 2 ||
++    !/^[A-Za-z0-9+/]+={0,2}$/.test(value.encrypted)
++  )
++    throw new Error(FAILED);
++  const encrypted = Buffer.from(value.encrypted, "base64");
++  if (
++    encrypted.length < 16 ||
++    encrypted.length > MAX_ENCRYPTED_BYTES ||
++    encrypted.toString("base64") !== value.encrypted
++  )
++    throw new Error(FAILED);
++  return encrypted;
++}
++
++/**
++ * Same-user workflow protection, not a hardware-enforced biometric Keychain ACL.
++ * The key and this object must remain in the Electron main process.
++ */
++export function createVaultDeviceUnlock(filePath: string) {
++  const path = NodePath.resolve(filePath);
++  const directory = NodePath.dirname(path);
++  let generation = 0;
++  let pending: Promise<unknown> = Promise.resolve();
++
++  const cancel = (): void => {
++    generation++;
++  };
++  const check = (current: number) => {
++    if (current !== generation) throw new Error(CANCELLED);
++  };
++  const supported = (): boolean =>
++    // oxlint-disable-next-line t3code/no-global-process-runtime -- This private adapter supports macOS with an OS user identity only.
++    process.platform === "darwin" && typeof process.getuid === "function";
++  const available = (): boolean => {
++    try {
++      return (
++        supported() && systemPreferences.canPromptTouchID() && safeStorage.isEncryptionAvailable()
++      );
++    } catch {
++      return false;
++    }
++  };
++  const requireAvailable = () => {
++    if (!available()) throw new Error(UNAVAILABLE);
++  };
++  const step = async <T>(operation: Promise<T>, current: number): Promise<T> => {
++    const result = await operation;
++    check(current);
++    return result;
++  };
++  const queue = <T>(
++    operation: (current: number) => Promise<T>,
++    needsEncryption = true,
++  ): Promise<T> => {
++    const current = generation;
++    const result = pending.then(async () => {
++      try {
++        check(current);
++        if (!supported()) throw new Error(UNAVAILABLE);
++        if (needsEncryption) requireAvailable();
++        const value = await operation(current);
++        check(current);
++        return value;
++      } catch {
++        // Neither OS diagnostics nor decrypted payloads may cross this boundary.
++        throw new Error(current !== generation ? CANCELLED : available() ? FAILED : UNAVAILABLE);
++      }
++    });
++    pending = result.catch(() => {});
++    return result;
++  };
++
++  const privateFile = (stat: NodeFS.Stats) => {
++    if (
++      !stat.isFile() ||
++      stat.isSymbolicLink() ||
++      stat.uid !== process.getuid!() ||
++      (stat.mode & 0o7777) !== 0o600 ||
++      stat.nlink !== 1 ||
++      stat.size < 1 ||
++      stat.size > MAX_FILE_BYTES
++    )
++      throw new Error(FAILED);
++  };
++  const sameFile = (left: NodeFS.Stats, right: NodeFS.Stats) => {
++    if (left.dev !== right.dev || left.ino !== right.ino) throw new Error(FAILED);
++  };
++  const inspectDirectory = async (current: number, create = false) => {
++    check(current);
++    const ancestors: string[] = [];
++    let ancestor = NodePath.dirname(directory);
++    for (;;) {
++      ancestors.unshift(ancestor);
++      const parent = NodePath.dirname(ancestor);
++      if (parent === ancestor) break;
++      ancestor = parent;
++    }
++    for (const entry of ancestors) {
++      const stat = await step(NodeFSP.lstat(entry), current);
++      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(FAILED);
++    }
++    if (create) {
++      try {
++        await step(NodeFSP.mkdir(directory, { mode: 0o700 }), current);
++      } catch (error) {
++        check(current);
++        if (!(error instanceof Error) || !("code" in error) || error.code !== "EEXIST")
++          throw new Error(FAILED);
++      }
++    }
++    const stat = await step(NodeFSP.lstat(directory), current);
++    if (
++      !stat.isDirectory() ||
++      stat.isSymbolicLink() ||
++      stat.uid !== process.getuid!() ||
++      (stat.mode & 0o7777) !== 0o700
++    )
++      throw new Error(FAILED);
++  };
++  const readEnrollment = async (current: number) => {
++    await inspectDirectory(current);
++    check(current);
++    const before = await step(NodeFSP.lstat(path), current);
++    privateFile(before);
++    const handle = await NodeFSP.open(
++      path,
++      NodeFS.constants.O_RDONLY | NodeFS.constants.O_NOFOLLOW | NodeFS.constants.O_NONBLOCK,
++    );
++    let bytes: Buffer;
++    try {
++      check(current);
++      const opened = await step(handle.stat(), current);
++      privateFile(opened);
++      sameFile(before, opened);
++      const buffer = Buffer.alloc(MAX_FILE_BYTES + 1);
++      check(current);
++      const { bytesRead } = await step(handle.read(buffer, 0, buffer.length, 0), current);
++      const after = await step(handle.stat(), current);
++      privateFile(after);
++      if (
++        bytesRead !== opened.size ||
++        bytesRead !== after.size ||
++        opened.mtimeMs !== after.mtimeMs ||
++        opened.ctimeMs !== after.ctimeMs
++      )
++        throw new Error(FAILED);
++      bytes = buffer.subarray(0, bytesRead);
++    } finally {
++      await handle.close();
++    }
++    check(current);
++    const linked = await step(NodeFSP.lstat(path), current);
++    privateFile(linked);
++    sameFile(before, linked);
++    return { encrypted: ciphertext(bytes), stat: linked };
++  };
++  const absent = (error: unknown) =>
++    error instanceof Error && "code" in error && error.code === "ENOENT";
++
++  return {
++    available,
++    cancel,
++    async enrolled(): Promise<boolean> {
++      try {
++        return await queue(async (current) => {
++          await readEnrollment(current);
++          check(current);
++          return true;
++        });
++      } catch {
++        return false;
++      }
++    },
++    enroll(key: string): Promise<void> {
++      return queue(async (current) => {
++        if (typeof key !== "string" || !KEY.test(key)) throw new Error(FAILED);
++        await step(systemPreferences.promptTouchID("enable private vault unlock"), current);
++        check(current);
++        requireAvailable();
++        const encrypted = safeStorage.encryptString(
++          JSON.stringify({ version: 1, server: SERVER, owner: OWNER, key }),
++        );
++        check(current);
++        if (encrypted.length < 16 || encrypted.length > MAX_ENCRYPTED_BYTES)
++          throw new Error(FAILED);
++        const bytes = Buffer.from(
++          JSON.stringify({
++            version: 1,
++            server: SERVER,
++            owner: OWNER,
++            encrypted: encrypted.toString("base64"),
++          }),
++        );
++        await inspectDirectory(current, true);
++        check(current);
++        // Refuse to replace an unrelated file, even when it belongs to this OS user.
++        let previous: NodeFS.Stats | undefined;
++        try {
++          previous = (await readEnrollment(current)).stat;
++          check(current);
++        } catch (error) {
++          check(current);
++          if (!absent(error)) throw new Error(FAILED);
++        }
++        const temporary = NodePath.join(
++          directory,
++          `.${NodePath.basename(path)}.${NodeCrypto.randomUUID()}.tmp`,
++        );
++        let ownedTemporary = false;
++        let saved: NodeFS.Stats | undefined;
++        try {
++          check(current);
++          const handle = await NodeFSP.open(
++            temporary,
++            NodeFS.constants.O_CREAT |
++              NodeFS.constants.O_EXCL |
++              NodeFS.constants.O_WRONLY |
++              NodeFS.constants.O_NOFOLLOW,
++            0o600,
++          );
++          ownedTemporary = true;
++          try {
++            check(current);
++            await step(handle.writeFile(bytes), current);
++            saved = await step(handle.stat(), current);
++            privateFile(saved);
++            await step(handle.sync(), current);
++          } finally {
++            await handle.close();
++          }
++          check(current);
++          await inspectDirectory(current);
++          check(current);
++          const source = await step(NodeFSP.lstat(temporary), current);
++          privateFile(source);
++          sameFile(saved!, source);
++          try {
++            const destination = await step(NodeFSP.lstat(path), current);
++            privateFile(destination);
++            if (!previous) throw new Error(FAILED);
++            sameFile(previous, destination);
++          } catch (error) {
++            check(current);
++            if (!absent(error) || previous) throw new Error(FAILED);
++          }
++          check(current);
++          await NodeFSP.rename(temporary, path);
++          ownedTemporary = false;
++          // cancel() can run while rename is pending. Remove only our published inode.
++          check(current);
++        } finally {
++          if (ownedTemporary) await NodeFSP.unlink(temporary).catch(() => {});
++          if (current !== generation && saved) {
++            const linked = await NodeFSP.lstat(path).catch(() => undefined);
++            if (linked && linked.dev === saved.dev && linked.ino === saved.ino)
++              await NodeFSP.unlink(path).catch(() => {});
++          }
++        }
++        check(current);
++      });
++    },
++    restore(): Promise<string> {
++      return queue(async (current) => {
++        // Electron explicitly requires prompting before fetching sensitive bytes.
++        await step(systemPreferences.promptTouchID("unlock the private vault"), current);
++        check(current);
++        requireAvailable();
++        const { encrypted } = await readEnrollment(current);
++        check(current);
++        requireAvailable();
++        const value: unknown = JSON.parse(safeStorage.decryptString(encrypted));
++        check(current);
++        if (
++          !bound(value) ||
++          Object.keys(value).sort().join(",") !== "key,owner,server,version" ||
++          typeof value.key !== "string" ||
++          !KEY.test(value.key)
++        )
++          throw new Error(FAILED);
++        return value.key;
++      });
++    },
++    forget(): Promise<void> {
++      cancel();
++      // Local revocation must work even when biometrics or Keychain access is unavailable.
++      return queue(async (current) => {
++        let enrollment: Awaited<ReturnType<typeof readEnrollment>>;
++        try {
++          enrollment = await readEnrollment(current);
++          check(current);
++        } catch (error) {
++          check(current);
++          if (absent(error)) return;
++          throw new Error(FAILED);
++        }
++        const linked = await step(NodeFSP.lstat(path), current);
++        privateFile(linked);
++        sameFile(enrollment.stat, linked);
++        await step(NodeFSP.unlink(path), current);
++      }, false);
++    },
++  };
++}
+diff --git a/apps/desktop/src/preview/VaultLoginPolicy.test.ts b/apps/desktop/src/preview/VaultLoginPolicy.test.ts
+new file mode 100644
+index 000000000..240a5d8d7
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultLoginPolicy.test.ts
+@@ -0,0 +1,124 @@
++import { describe, expect, it } from "vite-plus/test";
++import {
++  credentialForAccount,
++  mayFillVaultPassword,
++  mayNavigateVaultProvider,
++  mayTransferVaultCookie,
++  readVaultAccount,
++} from "./VaultLoginPolicy.ts";
++
++const alias = "gmail-fixture";
++const record = {
++  alias,
++  service: "gmail",
++  username: "fixture@example.com",
++  vaultItemId: "11111111-1111-4111-8111-111111111111",
++  passwordStored: true,
++  allowedOrigins: ["https://accounts.google.com"],
++  loginUrl: "https://accounts.google.com/ServiceLogin?service=mail",
++};
++const directory = { accounts: { [alias]: record } };
++const account = () => readVaultAccount(directory, alias);
++const item = () => ({
++  id: record.vaultItemId,
++  type: 1,
++  reprompt: 0,
++  login: {
++    username: record.username,
++    password: "sentinel-fixture-only",
++    uris: [{ uri: record.allowedOrigins[0] }],
++  },
++});
++
++describe("private Vault sign-in policy", () => {
++  it("accepts an exact HTTPS login origin and rejects misleading origins", () => {
++    const target = account();
++    expect(mayFillVaultPassword("https://accounts.google.com/signin", target)).toBe(true);
++    for (const url of [
++      "http://accounts.google.com/",
++      "https://accounts.google.com.evil.test/",
++      "https://accounts.google.com:8443/",
++      "https://evil.test/accounts.google.com",
++      "https://accounts.google.com@evil.test/",
++      "https://user:pass@accounts.google.com/",
++      "data:text/html,test",
++      "not a URL",
++      "https://accounts.google.com/signin/recovery/",
++      "https://accounts.google.com/signup/",
++    ])
++      expect(mayFillVaultPassword(url, target)).toBe(false);
++  });
++
++  it("restricts private navigation to HTTPS provider domains without URL credentials", () => {
++    for (const url of [
++      "https://accounts.google.com/signin",
++      "https://mail.google.com/mail/u/0/",
++      "https://google.com/",
++    ])
++      expect(mayNavigateVaultProvider(url, account())).toBe(true);
++    for (const url of [
++      "http://accounts.google.com/",
++      "https://google.com.evil.test/",
++      "https://evilgoogle.com/",
++      "https://godaddy.com/",
++      "https://user:pass@accounts.google.com/",
++      "https://accounts.google.com:8443/",
++      "data:text/html,test",
++    ])
++      expect(mayNavigateVaultProvider(url, account())).toBe(false);
++  });
++
++  it("cannot redirect a registered credential by editing the public metadata", () => {
++    for (const change of [
++      { allowedOrigins: ["https://evil.test"] },
++      { allowedOrigins: [...record.allowedOrigins, "https://evil.test"] },
++      { loginUrl: "https://evil.test" },
++      { service: "arbitrary" },
++      { vaultItemId: "not-a-uuid" },
++      { passwordStored: false },
++    ])
++      expect(() =>
++        readVaultAccount({ accounts: { [alias]: { ...record, ...change } } }, alias),
++      ).toThrow();
++    expect(() => readVaultAccount(directory, "__proto__")).toThrow();
++    expect(() => readVaultAccount(directory, "missing-account")).toThrow();
++  });
++
++  it("requires the registered item and identity, never another stored account", () => {
++    const target = account();
++    expect(credentialForAccount(item(), target).username).toBe(record.username);
++    for (const change of [
++      { id: "22222222-2222-4222-8222-222222222222" },
++      { type: 2 },
++      { reprompt: 1 },
++      { deletedDate: "2026-10-22" },
++      { login: { ...item().login, username: "someone-else@example.com" } },
++      { login: { ...item().login, password: "" } },
++      { login: { ...item().login, uris: [{ uri: "https://evil.test" }] } },
++    ])
++      expect(() => credentialForAccount({ ...item(), ...change }, target)).toThrow();
++  });
++
++  it("never includes decrypted payloads in failure messages", () => {
++    const input = item();
++    input.login.username = "wrong@example.com";
++    try {
++      credentialForAccount(input, account());
++    } catch (error) {
++      expect(String(error)).not.toContain("sentinel-fixture-only");
++      expect(String(error)).not.toContain("wrong@example.com");
++    }
++  });
++
++  it("transfers only cookies belonging to the selected provider", () => {
++    for (const domain of ["google.com", ".google.com", "accounts.google.com", ".mail.google.com"])
++      expect(mayTransferVaultCookie(domain, account())).toBe(true);
++    for (const domain of [
++      "evilgoogle.com",
++      "google.com.evil.test",
++      "godaddy.com",
++      "vault.scaleadvertisement.com",
++    ])
++      expect(mayTransferVaultCookie(domain, account())).toBe(false);
++  });
++});
+diff --git a/apps/desktop/src/preview/VaultLoginPolicy.ts b/apps/desktop/src/preview/VaultLoginPolicy.ts
+new file mode 100644
+index 000000000..950374ea6
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultLoginPolicy.ts
+@@ -0,0 +1,169 @@
++/** Public routing metadata only. Never infer permission from a vault URI. */
++export interface VaultAccount {
++  readonly alias: string;
++  readonly username: string;
++  readonly vaultItemId: string;
++  readonly service: "gmail" | "godaddy";
++  readonly origin: string;
++  readonly loginUrl: string;
++  readonly landingUrl: string;
++  readonly cookieDomain: string;
++}
++
++const services = {
++  gmail: {
++    origin: "https://accounts.google.com",
++    loginUrl: "https://accounts.google.com/ServiceLogin?service=mail",
++    landingUrl: "https://mail.google.com/",
++    cookieDomain: "google.com",
++  },
++  godaddy: {
++    origin: "https://sso.godaddy.com",
++    loginUrl: "https://sso.godaddy.com/",
++    landingUrl: "https://account.godaddy.com/",
++    cookieDomain: "godaddy.com",
++  },
++} as const;
++
++export interface VaultAccountMetadata {
++  readonly itemId: string;
++  readonly name: string;
++  readonly username: string;
++  readonly origins: readonly string[];
++}
++
++/** Metadata is a selection aid. Only reviewed provider adapters grant fill. */
++export function accountFromMetadata(item: VaultAccountMetadata): VaultAccount | undefined {
++  if (
++    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.itemId) ||
++    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.username)
++  )
++    return undefined;
++  const service = item.origins.includes(services.godaddy.origin)
++    ? "godaddy"
++    : item.origins.includes(services.gmail.origin)
++      ? "gmail"
++      : undefined;
++  if (!service) return undefined;
++  return {
++    alias: "selected-account",
++    vaultItemId: item.itemId,
++    username: item.username,
++    service,
++    ...services[service],
++  };
++}
++
++export function readVaultAccount(directory: unknown, alias: string): VaultAccount {
++  if (typeof directory !== "object" || directory === null || !("accounts" in directory))
++    throw new Error("invalid_directory");
++  const accounts = directory.accounts;
++  if (typeof accounts !== "object" || accounts === null || !Object.hasOwn(accounts, alias))
++    throw new Error("unknown_account");
++  const entry = (accounts as Record<string, unknown>)[alias];
++  if (typeof entry !== "object" || entry === null) throw new Error("invalid_account");
++  const record = entry as Record<string, unknown>;
++  if (
++    record.alias !== alias ||
++    (record.service !== "gmail" && record.service !== "godaddy") ||
++    typeof record.username !== "string" ||
++    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(record.username) ||
++    [...record.username].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
++    typeof record.vaultItemId !== "string" ||
++    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(record.vaultItemId) ||
++    record.passwordStored !== true
++  )
++    throw new Error("invalid_account");
++  const route = services[record.service];
++  if (
++    record.loginUrl !== route.loginUrl ||
++    !Array.isArray(record.allowedOrigins) ||
++    record.allowedOrigins.length !== 1 ||
++    record.allowedOrigins[0] !== route.origin
++  )
++    throw new Error("invalid_origin");
++  return {
++    alias,
++    username: record.username,
++    vaultItemId: record.vaultItemId,
++    service: record.service,
++    ...route,
++  };
++}
++
++export function mayNavigateVaultProvider(url: string, account: VaultAccount): boolean {
++  try {
++    const parsed = new URL(url);
++    return (
++      parsed.protocol === "https:" &&
++      !parsed.username &&
++      !parsed.password &&
++      !parsed.port &&
++      mayTransferVaultCookie(parsed.hostname, account)
++    );
++  } catch {
++    return false;
++  }
++}
++
++export function mayFillVaultPassword(url: string, account: VaultAccount): boolean {
++  try {
++    const parsed = new URL(url);
++    const changesCredentials =
++      /(?:^|\/)(?:signup|sign-up|createaccount|recovery|recover|reset|resetpassword|changepassword)(?:\/|$)/i.test(
++        parsed.pathname,
++      );
++    return (
++      parsed.origin === account.origin &&
++      !parsed.username &&
++      !parsed.password &&
++      !changesCredentials
++    );
++  } catch {
++    return false;
++  }
++}
++
++export function mayTransferVaultCookie(domain: string, account: VaultAccount): boolean {
++  const host = domain.replace(/^\./, "").toLowerCase();
++  return host === account.cookieDomain || host.endsWith(`.${account.cookieDomain}`);
++}
++
++export function reachedVaultProvider(url: string, account: VaultAccount): boolean {
++  try {
++    const parsed = new URL(url);
++    return (
++      parsed.origin === new URL(account.landingUrl).origin && !parsed.username && !parsed.password
++    );
++  } catch {
++    return false;
++  }
++}
++
++/** Reconstruct, rather than forward, the decrypted CLI response. */
++export function credentialForAccount(item: unknown, account: VaultAccount) {
++  if (typeof item !== "object" || item === null) throw new Error("invalid_item");
++  const value = item as Record<string, unknown>;
++  const login = value.login as Record<string, unknown> | undefined;
++  if (
++    value.id !== account.vaultItemId ||
++    value.type !== 1 ||
++    value.deletedDate ||
++    value.reprompt === 1 ||
++    login?.username !== account.username ||
++    typeof login.password !== "string" ||
++    login.password.length === 0 ||
++    !Array.isArray(login.uris) ||
++    !login.uris.some((entry: { uri?: unknown }) => {
++      if (typeof entry?.uri !== "string") return false;
++      try {
++        const uri = new URL(entry.uri);
++        return uri.origin === account.origin && !uri.username && !uri.password && !uri.port;
++      } catch {
++        return false;
++      }
++    })
++  )
++    throw new Error("item_mismatch");
++  return { username: account.username, password: login.password };
++}
+diff --git a/apps/desktop/src/preview/VaultMcpBridge.test.ts b/apps/desktop/src/preview/VaultMcpBridge.test.ts
+new file mode 100644
+index 000000000..a75ad85eb
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultMcpBridge.test.ts
+@@ -0,0 +1,74 @@
++// @effect-diagnostics nodeBuiltinImport:off -- Real Unix sockets and a captured child in private temporary test directories only.
++import * as NodeFSP from "node:fs/promises";
++import * as NodeNet from "node:net";
++import * as NodeChildProcess from "node:child_process";
++import { describe, expect, it, vi } from "vite-plus/test";
++vi.mock("electron", () => ({ app: { once: vi.fn() } }));
++import { startVaultMcpBridge, removeStaleVaultSocket } from "./VaultMcpBridge.ts";
++
++function event(emitter: NodeJS.EventEmitter, name: string): Promise<unknown[]> {
++  return new Promise((resolve) => emitter.once(name, (...args: unknown[]) => resolve(args)));
++}
++
++describe("Vault native socket lifecycle", () => {
++  it("uses private socket modes, cancels disconnected clients, refuses live peers and restarts after ordinary close", async () => {
++    const directory = await NodeFSP.mkdtemp("/tmp/vault-bridge-");
++    const socketPath = `${directory}/broker.sock`;
++    const disconnected = Promise.withResolvers<void>();
++    const handler = {
++      call: async () => ({ state: "idle" }),
++      disconnect: vi.fn(() => disconnected.resolve()),
++    };
++    let bridge;
++    try {
++      bridge = await startVaultMcpBridge(handler, socketPath);
++      expect((await NodeFSP.lstat(socketPath)).mode & 0o777).toBe(0o600);
++      const client = NodeNet.createConnection(socketPath);
++      await event(client, "connect");
++      const response = event(client, "data");
++      client.write(JSON.stringify({ id: "fixture", action: "connection" }) + "\n");
++      expect(JSON.parse(String((await response)[0]))).toEqual({
++        id: "fixture",
++        result: { state: "idle" },
++      });
++      client.destroy();
++      await disconnected.promise;
++      expect(handler.disconnect).toHaveBeenCalledOnce();
++      await expect(startVaultMcpBridge(handler, socketPath)).rejects.toThrow(
++        "bridge_socket_active_or_unknown",
++      );
++      await bridge.close();
++      bridge = await startVaultMcpBridge(handler, socketPath);
++      expect((await NodeFSP.lstat(socketPath)).isSocket()).toBe(true);
++    } finally {
++      await bridge?.close();
++      await NodeFSP.rm(directory, { recursive: true, force: true });
++    }
++  });
++
++  it("recovers only an owned refused socket after a captured fixture process crashes", async () => {
++    const directory = await NodeFSP.mkdtemp("/tmp/vault-stale-");
++    const path = `${directory}/broker.sock`;
++    const child = NodeChildProcess.spawn(
++      process.execPath,
++      [
++        "-e",
++        "const fs=require('node:fs'),net=require('node:net');net.createServer().listen(process.argv[1],()=>{fs.chmodSync(process.argv[1],0o600);process.stdout.write('ready')})",
++        path,
++      ],
++      { stdio: ["ignore", "pipe", "pipe"] },
++    );
++    try {
++      await event(child.stdout!, "data");
++      const ended = event(child, "close");
++      child.kill("SIGKILL");
++      await ended;
++      expect((await NodeFSP.lstat(path)).isSocket()).toBe(true);
++      await removeStaleVaultSocket(path);
++      await expect(NodeFSP.lstat(path)).rejects.toMatchObject({ code: "ENOENT" });
++    } finally {
++      if (child.exitCode === null && child.signalCode === null) child.kill();
++      await NodeFSP.rm(directory, { recursive: true, force: true });
++    }
++  });
++});
+diff --git a/apps/desktop/src/preview/VaultMcpBridge.ts b/apps/desktop/src/preview/VaultMcpBridge.ts
+new file mode 100644
+index 000000000..16bbc59eb
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultMcpBridge.ts
+@@ -0,0 +1,173 @@
++// @effect-diagnostics nodeBuiltinImport:off -- Local native socket transport, never a network or browser endpoint.
++import { app } from "electron";
++import * as NodeCrypto from "node:crypto";
++import * as NodeNet from "node:net";
++import * as NodeFSP from "node:fs/promises";
++import * as NodeOS from "node:os";
++import * as NodePath from "node:path";
++
++/** Recover only a refused, private, owned socket whose inode is unchanged. */
++export async function removeStaleVaultSocket(socketPath: string) {
++  const before = await NodeFSP.lstat(socketPath);
++  if (
++    !before.isSocket() ||
++    before.isSymbolicLink() ||
++    before.uid !== NodeOS.userInfo().uid ||
++    (before.mode & 0o077) !== 0
++  )
++    throw new Error("untrusted_bridge_socket");
++  const refused = await new Promise<boolean>((resolve) => {
++    const probe = NodeNet.createConnection(socketPath);
++    probe.once("connect", () => {
++      probe.destroy();
++      resolve(false);
++    });
++    probe.once("error", (error) => {
++      probe.destroy();
++      resolve((error as NodeJS.ErrnoException).code === "ECONNREFUSED");
++    });
++    probe.setTimeout(1000, () => {
++      probe.destroy();
++      resolve(false);
++    });
++  });
++  if (!refused) throw new Error("bridge_socket_active_or_unknown");
++  const after = await NodeFSP.lstat(socketPath);
++  if (
++    after.ino !== before.ino ||
++    after.dev !== before.dev ||
++    !after.isSocket() ||
++    after.uid !== before.uid ||
++    (after.mode & 0o077) !== 0
++  )
++    throw new Error("bridge_socket_changed");
++  await NodeFSP.unlink(socketPath);
++}
++
++/** Same-user capability boundary, not isolation from an unrestricted local agent.
++ * No HTTP/CORS, no credentials in this protocol, no private browser/CDP exposure. */
++export async function startVaultMcpBridge(
++  handler: {
++    call(client: string, input: unknown): Promise<Record<string, unknown>>;
++    disconnect(client: string): void;
++  },
++  socketPath = NodePath.join(NodeOS.homedir(), ".config/osiris-agent-vault/run/t3-vault.sock"),
++) {
++  const directory = NodePath.dirname(socketPath);
++  await NodeFSP.mkdir(directory, { recursive: true, mode: 0o700 });
++  const parent = await NodeFSP.lstat(directory);
++  if (
++    !parent.isDirectory() ||
++    parent.isSymbolicLink() ||
++    parent.uid !== NodeOS.userInfo().uid ||
++    (parent.mode & 0o077) !== 0
++  )
++    throw new Error("untrusted_bridge_directory");
++  const clients = new Set<NodeNet.Socket>();
++  const server = NodeNet.createServer((socket) => {
++    if (clients.size >= 8) {
++      socket.destroy();
++      return;
++    }
++    clients.add(socket);
++    const client = NodeCrypto.randomUUID();
++    let buffer = "";
++    let inFlight = false;
++    socket.setEncoding("utf8");
++    socket.on("error", () => socket.destroy());
++    socket.on("close", () => {
++      clients.delete(socket);
++      handler.disconnect(client);
++    });
++    socket.on("data", (chunk) => {
++      buffer += chunk;
++      if (buffer.length > 8192) {
++        socket.destroy();
++        return;
++      }
++      let end: number;
++      while ((end = buffer.indexOf("\n")) >= 0) {
++        const line = buffer.slice(0, end);
++        buffer = buffer.slice(end + 1);
++        let input: unknown;
++        try {
++          input = JSON.parse(line);
++        } catch {
++          socket.destroy();
++          return;
++        }
++        if (!input || typeof input !== "object") {
++          socket.destroy();
++          return;
++        }
++        const data = input as Record<string, unknown>;
++        const keys = new Set([
++          "id",
++          "action",
++          "threadId",
++          "tabId",
++          "query",
++          "requestId",
++          "selectionId",
++        ]);
++        if (
++          typeof data.id !== "string" ||
++          data.id.length > 80 ||
++          Object.keys(data).some((key) => !keys.has(key))
++        ) {
++          socket.destroy();
++          return;
++        }
++        const id = data.id;
++        if (inFlight) {
++          socket.write(JSON.stringify({ id, result: { state: "busy" } }) + "\n");
++          continue;
++        }
++        inFlight = true;
++        void handler
++          .call(client, data)
++          .then(
++            (result) => {
++              if (!socket.destroyed) socket.write(JSON.stringify({ id, result }) + "\n");
++            },
++            () => {
++              if (!socket.destroyed)
++                socket.write(JSON.stringify({ id, result: { state: "failed" } }) + "\n");
++            },
++          )
++          .finally(() => {
++            inFlight = false;
++          });
++      }
++    });
++  });
++  const listen = () =>
++    new Promise<void>((resolve, reject) => {
++      server.once("error", reject);
++      server.listen(socketPath, () => {
++        server.off("error", reject);
++        resolve();
++      });
++    });
++  try {
++    await listen();
++  } catch (error) {
++    if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
++    await removeStaleVaultSocket(socketPath);
++    await listen();
++  }
++  await NodeFSP.chmod(socketPath, 0o600);
++  const identity = await NodeFSP.lstat(socketPath);
++  const close = async () => {
++    for (const client of clients) client.destroy();
++    server.close();
++    try {
++      const stat = await NodeFSP.lstat(socketPath);
++      if (stat.ino === identity.ino && stat.dev === identity.dev) await NodeFSP.unlink(socketPath);
++    } catch {
++      /* Already removed; no fallback path. */
++    }
++  };
++  app.once("before-quit", () => void close());
++  return { close };
++}
+diff --git a/apps/desktop/src/preview/VaultProviderIdentity.test.ts b/apps/desktop/src/preview/VaultProviderIdentity.test.ts
+new file mode 100644
+index 000000000..13540fb18
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultProviderIdentity.test.ts
+@@ -0,0 +1,54 @@
++// @effect-diagnostics nodeBuiltinImport:off -- Execute boolean-only identity checks against harmless page fixtures.
++import * as NodeVM from "node:vm";
++import { describe, expect, it } from "vite-plus/test";
++import { readVaultAccount } from "./VaultLoginPolicy.ts";
++import { vaultIdentityScript } from "./VaultProviderIdentity.ts";
++
++const username = "fixture@example.com";
++const account = readVaultAccount(
++  {
++    accounts: {
++      fixture: {
++        alias: "fixture",
++        username,
++        service: "godaddy",
++        vaultItemId: "11111111-1111-4111-8111-111111111111",
++        passwordStored: true,
++        loginUrl: "https://sso.godaddy.com/",
++        allowedOrigins: ["https://sso.godaddy.com"],
++      },
++    },
++  },
++  "fixture",
++);
++
++describe("GoDaddy exact account verifier", () => {
++  it("accepts only matching provider username and authenticated shopper metadata on the account origin", async () => {
++    const evaluate = (
++      name: string,
++      origin = "https://account.godaddy.com",
++      shopperId = "fixture-shopper",
++    ) =>
++      NodeVM.runInNewContext(vaultIdentityScript(account), {
++        location: { origin },
++        window: {
++          ux: {
++            shopperData: (done: (error: unknown, data: unknown) => void) =>
++              done(null, { username: name, shopperId, password: "SENTINEL_NOT_RETURNED" }),
++          },
++        },
++        setTimeout: () => 1,
++        clearTimeout: () => {},
++      });
++    expect(await evaluate(username)).toBe(true);
++    expect(await evaluate("wrong@example.com")).toBe(false);
++    expect(await evaluate(username, "https://account.godaddy.com.evil.test")).toBe(false);
++    expect(await evaluate(username, "https://account.godaddy.com", "")).toBe(false);
++    expect(
++      await NodeVM.runInNewContext(vaultIdentityScript(account), {
++        location: { origin: "https://account.godaddy.com" },
++        window: {},
++      }),
++    ).toBe(false);
++  });
++});
+diff --git a/apps/desktop/src/preview/VaultProviderIdentity.ts b/apps/desktop/src/preview/VaultProviderIdentity.ts
+new file mode 100644
+index 000000000..9594b540e
+--- /dev/null
++++ b/apps/desktop/src/preview/VaultProviderIdentity.ts
+@@ -0,0 +1,31 @@
++import type { VaultAccount } from "./VaultLoginPolicy.ts";
++
++/** Returns a boolean only. Never read cookies, token stores or whole page data.
++ * GoDaddy's public utility-header exposes shopperData(callback); its username
++ * is the account identity, whereas a profile contact email may belong elsewhere.
++ * Missing/changed provider APIs fail closed and require adapter review. */
++export function vaultIdentityScript(account: VaultAccount): string {
++  const expected = JSON.stringify(account.username.toLowerCase());
++  if (account.service === "gmail")
++    return `(() => {
++    if (location.origin !== 'https://mail.google.com' || !document.querySelector('[role="main"]')) return false;
++    const expected = ${expected};
++    return [...document.querySelectorAll('a[href*="accounts.google.com/SignOutOptions"]')].some(e =>
++      ((e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('title') || '')).toLowerCase().split(/[\\s(),<>]+/).includes(expected));
++  })()`;
++  return `(() => {
++    if (location.origin !== 'https://account.godaddy.com') return false;
++    // Provider-owned account metadata API, observed in GoDaddy's public
++    // utility-header source. No storage/cookie/session access or data return.
++    const api = window.ux?.shopperData;
++    if (typeof api !== 'function') return false;
++    return new Promise(resolve => {
++      const timer = setTimeout(() => resolve(false), 3000);
++      try { api((error, data) => {
++        clearTimeout(timer);
++        const name = data?.username;
++        resolve(!error && typeof name === 'string' && name.toLowerCase() === ${expected} && typeof data.shopperId === 'string' && data.shopperId.length > 0);
++      }); } catch { clearTimeout(timer); resolve(false); }
++    });
++  })()`;
++}
+diff --git a/apps/desktop/src/vault-login-preload.ts b/apps/desktop/src/vault-login-preload.ts
+new file mode 100644
+index 000000000..34ba7e3f3
+--- /dev/null
++++ b/apps/desktop/src/vault-login-preload.ts
+@@ -0,0 +1,25 @@
++import { ipcRenderer } from "electron";
++
++const channel = "desktop:private-vault-login";
++window.addEventListener("DOMContentLoaded", () => {
++  document.getElementById("unlock")?.addEventListener("submit", (event) => {
++    event.preventDefault();
++    const password = document.getElementById("password") as HTMLInputElement;
++    const code = document.getElementById("code") as HTMLInputElement;
++    ipcRenderer.send(channel, { action: "unlock", password: password.value, code: code.value });
++    password.value = "";
++    code.value = "";
++  });
++  for (const action of ["approve", "done", "cancel", "lock", "forget"]) {
++    document
++      .getElementById(action)
++      ?.addEventListener("click", () => ipcRenderer.send(channel, { action }));
++  }
++  ipcRenderer.on(channel, (_event, state: { phase: string; message: string }) => {
++    document.getElementById("message")!.textContent = state.message;
++    document.getElementById("approve")!.hidden = state.phase !== "needs_approval";
++    document.getElementById("unlock")!.hidden = state.phase !== "needs_unlock";
++    document.getElementById("done")!.hidden = state.phase !== "private_signin";
++    if (state.phase === "needs_unlock") document.getElementById("password")?.focus();
++  });
++});
