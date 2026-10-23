@@ -1,0 +1,40 @@
+{
+  "extends": null,
+  "productName": "Vault",
+  "appId": "com.osirismedici.vault",
+  "extraMetadata": {
+    "name": "vault",
+    "productName": "Vault"
+  },
+  "copyright": "Upstream copyright Bitwarden Inc.; Vault modifications copyright Osiris Medici",
+  "directories": {
+    "buildResources": "resources",
+    "output": "dist-vault",
+    "app": "build"
+  },
+  "electronVersion": "43.5.0",
+  "asar": true,
+  "publish": null,
+  "beforePack": "scripts/before-pack.js",
+  "afterPack": "scripts/vault-after-pack.js",
+  "files": [
+    "**/*",
+    "!node_modules/@bitwarden/desktop-napi/scripts",
+    "!node_modules/@bitwarden/desktop-napi/src",
+    "!node_modules/@bitwarden/desktop-napi/Cargo.toml",
+    "!node_modules/@bitwarden/desktop-napi/build.rs",
+    "!node_modules/@bitwarden/desktop-napi/package.json"
+  ],
+  "extraResources": [
+    { "from": "resources/vault-notices", "to": "vault-notices" }
+  ],
+  "mac": {
+    "category": "public.app-category.productivity",
+    "icon": "resources/vault.icns",
+    "identity": null,
+    "hardenedRuntime": true,
+    "entitlements": "resources/entitlements.vault.plist",
+    "entitlementsInherit": "resources/entitlements.mac.inherit.plist",
+    "target": ["dir"]
+  }
+}

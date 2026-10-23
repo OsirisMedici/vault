@@ -1,0 +1,45 @@
+name: osiris-vault-agent-web
+services:
+  bridge:
+    image: osiris-vault-agent-web:0.1.0
+    pull_policy: never
+    container_name: osiris-vault-agent-web
+    user: '65532:65532'
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports:
+      - '127.0.0.1:19433:19433'
+    volumes:
+      - type: bind
+        source: /opt/osiris-agent-vault/web-private
+        target: /private
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/osiris-agent-vault/web-data
+        target: /state
+        bind:
+          create_host_path: false
+    tmpfs: ['/tmp:size=32m,mode=1777']
+    logging:
+      driver: none
+    networks:
+      - engine
+      - proxy
+    healthcheck:
+      test: ['CMD', 'bun', '-e', "process.exit((await fetch('http://127.0.0.1:19433/health')).ok?0:1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+networks:
+  engine:
+    external: true
+    name: osiris-agent-vault_default
+  proxy:
+    external: true
+    name: canvas-cloud-pilot_default

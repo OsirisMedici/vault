@@ -1,0 +1,8 @@
+*
+!dist/
+!dist/overlay/
+!dist/overlay/**
+!templates/
+!templates/**
+!LICENSE
+!NOTICE.md
