@@ -1,0 +1,13 @@
+const V=storage.vault,C=V.colors;
+const b=V.board('guide','00 · Vault / design review guide',1440,1180);
+V.text(b,'Vault',48,42,1300,28,C.text,600,44);V.badge(b,'Editable design · Review pending',48,126,'neutral',330);
+V.text(b,'One invitation.\nThe right accounts.\nChanges in one place.',48,212,1300,52,C.text,600,216);
+V.text(b,'Osiris owns the business. Workspaces organize the work. Explicit account grants decide what each person can access.',48,464,1300,21,C.secondary,400,74);
+V.button(b,'Start with People',48,588,260,'people');V.button(b,'Review mobile',332,588,230,'mobilePeople','secondary');V.button(b,'States and setup',586,588,230,'empty','secondary');V.button(b,'Foundations',840,588,210,'foundations','secondary');
+V.rule(b,706,48,1344);
+V.text(b,'What to review',48,754,620,24,C.text,600,40);
+V.text(b,'Invite → Workspaces → Accounts → Review\nAvery → Remove AND Studio → Retained Scale access\nJordan → Confirm identity → Active sharing\nWorkspaces → Create → Add an existing account\nTeammate → Permitted account → Reveal sample',48,816,670,16,C.secondary,400,190);
+V.text(b,'Design boundary',790,754,602,24,C.text,600,40);
+V.text(b,'23 desktop screens · 13 states and setup screens\n8 mobile screens · 10 reusable components\nSynthetic people and accounts only\nNo real invitations or access changes\nImplementation and live testing wait for owner review / READY',790,816,602,16,C.secondary,400,210);
+V.text(b,'Cross-page links open the matching Crayon prototype in a new tab. Primary desktop and mobile flows stay within their page.',48,1090,1344,13,C.muted,400,44);
+b.setPluginData('vault-complete','true');return {guide:b.id};
