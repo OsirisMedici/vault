@@ -1,0 +1,75 @@
+--- a/apps/web/src/index.html
++++ b/apps/web/src/index.html
+@@ -5,7 +5,7 @@
+     <meta name="viewport" content="width=1010" />
+     <meta name="theme-color" content="#175DDC" />
+ 
+-    <title page-title>Vaultwarden Web</title>
++    <title page-title>Vault</title>
+ 
+     <link rel="apple-touch-icon" sizes="180x180" href="images/icons/apple-touch-icon.png" />
+     <link rel="icon" type="image/png" sizes="32x32" href="images/icons/favicon-32x32.png" />
+@@ -20,7 +20,7 @@
+       <!-- Note: any changes to this html need to be made in the app.component.html as well -->
+       <div class="tw-flex tw-flex-col tw-min-h-[100vh]">
+         <div class="tw-pt-5 tw-px-5 tw-fixed">
+-          <img class="new-logo-themed !tw-w-[200px]" alt="Vaultwarden" />
++          <img class="new-logo-themed !tw-w-[200px]" alt="Vault" />
+         </div>
+         <div class="spinner-container tw-justify-center">
+           <!-- eslint-disable-next-line @bitwarden/components/no-bwi-class-usage -->
+--- a/apps/web/src/app/core/router.service.ts
++++ b/apps/web/src/app/core/router.service.ts
+@@ -61,7 +61,7 @@
+       .subscribe((event: NavigationEnd) => {
+         this.currentUrl = event.url;
+ 
+-        let title = "Vaultwarden Web";
++        let title = "Vault";
+ 
+         if (this.currentUrl.includes("/sm/")) {
+           title = i18nService.t("bitSecretsManager");
+--- a/apps/web/src/app/layouts/frontend-layout.component.html
++++ b/apps/web/src/app/layouts/frontend-layout.component.html
+@@ -3,7 +3,7 @@
+ <footer class="tw-text-center tw-my-12">
+   <environment-selector></environment-selector>
+ 
+-  <div bitTypography="body2">Vaultwarden Web</div>
++  <div bitTypography="body2">Vault</div>
+   <div bitTypography="body2">{{ version }}</div>
+   <br />
+   <div bitTypography="helper" id="vw-disclaimer">
+--- a/apps/web/src/app/app.component.html
++++ b/apps/web/src/app/app.component.html
+@@ -4,7 +4,7 @@
+    loading state here for process reloading. -->
+   <div class="tw-flex tw-flex-col tw-min-h-[100vh]">
+     <div class="tw-pt-5 tw-px-5 tw-fixed">
+-      <img class="new-logo-themed !tw-w-[200px]" alt="Vaultwarden" />
++      <img class="new-logo-themed !tw-w-[200px]" alt="Vault" />
+     </div>
+     <div class="spinner-container tw-justify-center">
+       <i
+--- a/apps/web/src/app/core/i18n.service.ts
++++ b/apps/web/src/app/core/i18n.service.ts
+@@ -18,7 +18,7 @@
+           "/" +
+           formattedLocale +
+           "/messages.json?cache=" +
+-          process.env.CACHE_TAG;
++          process.env.CACHE_TAG + "-vault-0.1.1";
+         const localesResult = await fetch(filePath);
+         const locales = await localesResult.json();
+         return locales;
+--- a/apps/web/src/locales/en/messages.json
++++ b/apps/web/src/locales/en/messages.json
+@@ -21,7 +21,7 @@
+     "message": "All critical apps"
+   },
+   "appLogoLabel": {
+-    "message": "Bitwarden logo"
++    "message": "Vault logo"
+   },
+   "criticalApplications": {
+     "message": "Critical applications"

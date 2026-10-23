@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Vault">
+  <rect width="48" height="48" rx="12" fill="#202022"/>
+  <g fill="none" stroke="#ededee" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="18" cy="18" r="6.5"/>
+    <path d="m22.6 22.6 12 12m-4-4 4-4m-8 0 4-4"/>
+  </g>
+</svg>
