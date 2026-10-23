@@ -1,0 +1,41 @@
+name: osiris-agent-vault
+services:
+  engine:
+    image: osiris-agent-vault:d5836ec3bb2315de38043d742ae5daca11a4944a
+    pull_policy: never
+    restart: unless-stopped
+    user: '65532:65532'
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      HOME: /data
+      AGENT_VAULT_TELEMETRY: 'false'
+    ports:
+      - '127.0.0.1:19431:14321'
+      - '127.0.0.1:19432:14322'
+    volumes:
+      - type: bind
+        source: /opt/osiris-agent-vault/data
+        target: /data
+        bind:
+          create_host_path: false
+    secrets:
+      - master_password
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    logging:
+      driver: none
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:14321/health']
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    stop_grace_period: 15s
+secrets:
+  master_password:
+    file: /opt/osiris-agent-vault/private/master-password
