@@ -1,0 +1,546 @@
+--- a/apps/web/src/locales/en/messages.json
++++ b/apps/web/src/locales/en/messages.json
+@@ -1,4 +1,10 @@
+ {
++  "vaultMasterPasswordLength": {
++    "message": "Choose a master password of 1–12 characters. Letters, numbers, spaces and symbols are allowed."
++  },
++  "vaultShortMasterPasswordWarning": {
++    "message": "Very short master passwords are easy to guess and weaken protection of your encrypted vault, even with two-step login. Organization master-password requirements do not apply in Vault."
++  },
+   "allApplications": {
+     "message": "All applications"
+   },
+--- a/libs/auth/src/angular/input-password/input-password.component.ts
++++ b/libs/auth/src/angular/input-password/input-password.component.ts
+@@ -25,7 +25,6 @@
+ import { I18nService } from "@bitwarden/common/platform/abstractions/i18n.service";
+ import { PlatformUtilsService } from "@bitwarden/common/platform/abstractions/platform-utils.service";
+ import { ValidationService } from "@bitwarden/common/platform/abstractions/validation.service";
+-import { Utils } from "@bitwarden/common/platform/misc/utils";
+ import { UserId } from "@bitwarden/common/types/guid";
+ import { CipherService } from "@bitwarden/common/vault/abstractions/cipher.service";
+ // This import has been flagged as unallowed for this class. It may be involved in a circular dependency loop.
+@@ -46,7 +45,6 @@
+ import { PasswordGenerationServiceAbstraction } from "@bitwarden/generator-legacy";
+ import { DEFAULT_KDF_CONFIG, KdfConfig, KdfConfigService } from "@bitwarden/key-management";
+ 
+-import { PasswordCalloutComponent } from "../password-callout/password-callout.component";
+ import { compareInputs, ValidationGoal } from "../validators/compare-inputs.validator";
+ 
+ import { PasswordInputResult } from "./password-input-result";
+@@ -117,7 +115,6 @@
+     IconModule,
+     InputModule,
+     JslibModule,
+-    PasswordCalloutComponent,
+     PasswordStrengthV2Component,
+     ReactiveFormsModule,
+     LinkModule,
+@@ -173,7 +170,9 @@
+   private kdfConfig: KdfConfig | null = null;
+   private minHintLength = 0;
+   protected maxHintLength = 50;
+-  protected minPasswordLength = Utils.minimumPasswordLength;
++  // Vault bounds newly chosen passwords only; current passwords remain unrestricted.
++  protected minPasswordLength = 1;
++  protected maxPasswordLength = 12;
+   protected minPasswordMsg = "";
+   protected passwordStrengthScore: PasswordStrengthScore = 0;
+   protected showErrorSummary = false;
+@@ -184,6 +183,7 @@
+       newPassword: this.formBuilder.nonNullable.control("", [
+         Validators.required,
+         Validators.minLength(this.minPasswordLength),
++        Validators.maxLength(this.maxPasswordLength),
+       ]),
+       newPasswordConfirm: this.formBuilder.nonNullable.control("", Validators.required),
+     },
+@@ -200,14 +200,7 @@
+   );
+ 
+   protected get minPasswordLengthMsg() {
+-    if (
+-      this.masterPasswordPolicyOptions != undefined &&
+-      this.masterPasswordPolicyOptions.minLength > 0
+-    ) {
+-      return this.i18nService.t("characterMinimum", this.masterPasswordPolicyOptions.minLength);
+-    } else {
+-      return this.i18nService.t("characterMinimum", this.minPasswordLength);
+-    }
++    return this.i18nService.t("vaultMasterPasswordLength");
+   }
+ 
+   constructor(
+@@ -595,9 +588,21 @@
+   }
+ 
+   protected async generatePassword() {
+-    const options = (await this.passwordGenerationService.getOptions())?.[0] ?? {};
++    // Generate within Vault's new-password bounds without changing the user's
++    // saved generator settings or applying unrelated generator policies.
+     this.formGroup.patchValue({
+-      newPassword: await this.passwordGenerationService.generatePassword(options),
++      newPassword: await this.passwordGenerationService.generatePassword({
++        type: "password",
++        length: this.maxPasswordLength,
++        uppercase: true,
++        lowercase: true,
++        number: true,
++        special: true,
++        minUppercase: 1,
++        minLowercase: 1,
++        minNumber: 1,
++        minSpecial: 1,
++      }),
+     });
+ 
+     if (!this.passwordStrengthComponent) {
+--- a/libs/auth/src/angular/input-password/input-password.component.html
++++ b/libs/auth/src/angular/input-password/input-password.component.html
+@@ -1,14 +1,4 @@
+ <form [formGroup]="formGroup" [bitSubmit]="submit">
+-  <auth-password-callout
+-    *ngIf="masterPasswordPolicyOptions"
+-    [message]="
+-      flow === InputPasswordFlow.ChangePasswordDelegation
+-        ? 'changePasswordDelegationMasterPasswordPolicyInEffect'
+-        : 'masterPasswordPolicyInEffect'
+-    "
+-    [policy]="masterPasswordPolicyOptions"
+-  ></auth-password-callout>
+-
+   <bit-form-field
+     *ngIf="
+       flow === InputPasswordFlow.ChangePassword ||
+@@ -71,7 +61,8 @@
+       <bit-hint *ngIf="flow !== InputPasswordFlow.ChangePasswordDelegation">
+         <span class="tw-font-medium">{{ "important" | i18n }} </span>
+         {{ "masterPassImportant" | i18n }}
+-        {{ minPasswordLengthMsg }}.
++        {{ minPasswordLengthMsg }}
++        {{ "vaultShortMasterPasswordWarning" | i18n }}
+       </bit-hint>
+     </bit-form-field>
+ 
+--- /dev/null
++++ b/libs/auth/src/angular/input-password/input-password.component.spec.ts
+@@ -0,0 +1,169 @@
++import { ChangeDetectorRef, DestroyRef } from "@angular/core";
++import { TestBed } from "@angular/core/testing";
++import { FormBuilder } from "@angular/forms";
++import { mock } from "jest-mock-extended";
++import { of } from "rxjs";
++
++import { AuditService } from "@bitwarden/common/abstractions/audit.service";
++import { PolicyService } from "@bitwarden/common/admin-console/abstractions/policy/policy.service.abstraction";
++import { MasterPasswordPolicyOptions } from "@bitwarden/common/admin-console/models/domain/master-password-policy-options";
++import { MasterPasswordServiceAbstraction } from "@bitwarden/common/key-management/master-password/abstractions/master-password.service.abstraction";
++import { I18nService } from "@bitwarden/common/platform/abstractions/i18n.service";
++import { PlatformUtilsService } from "@bitwarden/common/platform/abstractions/platform-utils.service";
++import { ValidationService } from "@bitwarden/common/platform/abstractions/validation.service";
++import { CipherService } from "@bitwarden/common/vault/abstractions/cipher.service";
++// Mock the existing component dependencies without instantiating UI services.
++// eslint-disable-next-line no-restricted-imports
++import { DialogService, ToastService } from "@bitwarden/components";
++import { PasswordGenerationServiceAbstraction } from "@bitwarden/generator-legacy";
++import { DEFAULT_KDF_CONFIG, KdfConfigService } from "@bitwarden/key-management";
++import { UserId } from "@bitwarden/user-core";
++
++import { InputPasswordComponent, InputPasswordFlow } from "./input-password.component";
++
++// Public dummy values only. No service or credential store is contacted.
++describe("Vault master password choice", () => {
++  const dialog = mock<DialogService>();
++  const policy = mock<PolicyService>();
++  const audit = mock<AuditService>();
++  const validation = mock<ValidationService>();
++  const masterPassword = mock<MasterPasswordServiceAbstraction>();
++  const kdf = mock<KdfConfigService>();
++  const generator = mock<PasswordGenerationServiceAbstraction>();
++  let component: InputPasswordComponent;
++
++  beforeEach(() => {
++    jest.clearAllMocks();
++    dialog.openSimpleDialog.mockResolvedValue(true);
++    policy.evaluateMasterPassword.mockReturnValue(true);
++    audit.passwordLeaked.mockResolvedValue(0);
++    kdf.getKdfConfig$.mockReturnValue(of(DEFAULT_KDF_CONFIG));
++    masterPassword.emailToSalt.mockReturnValue("dummy@example.invalid" as never);
++    masterPassword.saltForUser$.mockReturnValue(of("dummy@example.invalid" as never));
++    component = new InputPasswordComponent(
++      audit,
++      mock<CipherService>(),
++      mock<ChangeDetectorRef>(),
++      dialog,
++      TestBed.inject(DestroyRef),
++      new FormBuilder(),
++      mock<I18nService>(),
++      kdf,
++      masterPassword,
++      generator,
++      mock<PlatformUtilsService>(),
++      policy,
++      mock<ToastService>(),
++      validation,
++    );
++    component.flow = InputPasswordFlow.SetInitialPasswordAccountRegistration;
++    component.email = "dummy@example.invalid";
++    component.ngOnInit();
++  });
++
++  it.each(Array.from({ length: 12 }, (_, i) => i + 1))("accepts length %i", async (length) => {
++    const password = "a".repeat(length);
++    component["formGroup"].patchValue({ newPassword: password, newPasswordConfirm: password });
++    const result = await component.submit();
++    expect(result?.newPassword).toBe(password);
++    expect(result?.kdfConfig).toBe(DEFAULT_KDF_CONFIG);
++    expect(validation.showError).not.toHaveBeenCalled();
++  });
++
++  it.each(["", "a".repeat(13)])("rejects empty and over-limit choices", async (password) => {
++    component["formGroup"].patchValue({ newPassword: password, newPasswordConfirm: password });
++    expect(await component.submit()).toBeUndefined();
++    expect(audit.passwordLeaked).not.toHaveBeenCalled();
++  });
++
++  it.each(["Z", "!", "é", " a! ", "012345678901"])(
++    "preserves all password characters",
++    async (password) => {
++      component["formGroup"].patchValue({ newPassword: password, newPasswordConfirm: password });
++      expect((await component.submit())?.newPassword).toBe(password);
++      expect(audit.passwordLeaked).toHaveBeenCalledWith(password);
++    },
++  );
++
++  it("rejects confirmation mismatch", async () => {
++    component["formGroup"].patchValue({ newPassword: "a", newPasswordConfirm: "b" });
++    expect(await component.submit()).toBeUndefined();
++  });
++
++  it("keeps the weak password warning and honors cancellation", async () => {
++    dialog.openSimpleDialog.mockResolvedValue(false);
++    component["formGroup"].patchValue({ newPassword: "a", newPasswordConfirm: "a" });
++    expect(await component.submit()).toBeUndefined();
++    expect(dialog.openSimpleDialog).toHaveBeenCalledWith(
++      expect.objectContaining({ title: { key: "weakMasterPassword" } }),
++    );
++  });
++
++  it("keeps the breached password warning", async () => {
++    audit.passwordLeaked.mockResolvedValue(1);
++    component["formGroup"].patchValue({ newPassword: "a", newPasswordConfirm: "a" });
++    expect((await component.submit())?.newPassword).toBe("a");
++    expect(dialog.openSimpleDialog).toHaveBeenCalledWith(
++      expect.objectContaining({ title: { key: "weakAndExposedMasterPassword" } }),
++    );
++  });
++
++  it("passes the complete long current password through a password change", async () => {
++    component.flow = InputPasswordFlow.ChangePassword;
++    component.userId = "00000000-0000-0000-0000-000000000001" as UserId;
++    component.ngOnInit();
++    const oldPassword = " existing long password ! ".repeat(8);
++    component["formGroup"].patchValue({
++      currentPassword: oldPassword,
++      newPassword: "b",
++      newPasswordConfirm: "b",
++    });
++    const result = await component.submit();
++    expect(result?.currentPassword).toBe(oldPassword);
++    expect(result?.newPassword).toBe("b");
++  });
++
++  it("allows a short choice with strict organization requirements overridden", async () => {
++    component.masterPasswordPolicyOptions = Object.assign(new MasterPasswordPolicyOptions(), {
++      minLength: 20,
++      minComplexity: 4,
++      requireUpper: true,
++      requireLower: true,
++      requireNumbers: true,
++      requireSpecial: true,
++      enforceOnLogin: true,
++    });
++    component["formGroup"].patchValue({ newPassword: "a", newPasswordConfirm: "a" });
++    expect((await component.submit())?.newPassword).toBe("a");
++  });
++
++  it("applies the same bounds to delegated password resets", async () => {
++    component.flow = InputPasswordFlow.ChangePasswordDelegation;
++    component.email = undefined;
++    component["formGroup"].patchValue({ newPassword: "!", newPasswordConfirm: "!" });
++    expect((await component.submit())?.newPassword).toBe("!");
++    component["formGroup"].patchValue({
++      newPassword: "x".repeat(13),
++      newPasswordConfirm: "x".repeat(13),
++    });
++    expect(await component.submit()).toBeUndefined();
++  });
++  it("generates a valid-length password without mutating generator preferences", async () => {
++    generator.generatePassword.mockResolvedValue("a".repeat(12));
++    component.passwordStrengthComponent = { updatePasswordStrength: jest.fn() } as never;
++    await component["generatePassword"]();
++    expect(generator.generatePassword).toHaveBeenCalledWith(
++      expect.objectContaining({
++        type: "password",
++        length: 12,
++        minUppercase: 1,
++        minLowercase: 1,
++        minNumber: 1,
++        minSpecial: 1,
++      }),
++    );
++    expect(component["formGroup"].controls.newPassword.valid).toBe(true);
++    expect(generator.saveOptions).not.toHaveBeenCalled();
++    expect(generator.getOptions).not.toHaveBeenCalled();
++  });
++});
+--- a/libs/auth/src/angular/login/login.component.ts
++++ b/libs/auth/src/angular/login/login.component.ts
+@@ -107,10 +107,8 @@
+   formGroup = this.formBuilder.group(
+     {
+       email: ["", [Validators.required, Validators.email]],
+-      masterPassword: [
+-        "",
+-        [Validators.required, Validators.minLength(Utils.originalMinimumPasswordLength)],
+-      ],
++      // Accept short Vault passwords and existing longer passwords without alteration.
++      masterPassword: ["", [Validators.required]],
+       rememberEmail: [false],
+     },
+     { updateOn: "submit" },
+--- /dev/null
++++ b/libs/auth/src/angular/login/login.component.spec.ts
+@@ -0,0 +1,26 @@
++import { FormBuilder } from "@angular/forms";
++
++import { LoginComponent } from "./login.component";
++
++// Instantiate the real form without running lifecycle hooks or contacting a server.
++describe("Vault login password compatibility", () => {
++  const services = Array(25).fill(undefined);
++  services[6] = new FormBuilder();
++  services[14] = { getClientType: () => 0 };
++
++  it.each(["a", "!", " a! ", "a".repeat(12), "a".repeat(13), "existing-long-password!".repeat(8)])(
++    "accepts existing and short passwords without changing their value",
++    (password) => {
++      const component = Reflect.construct(LoginComponent, services) as LoginComponent;
++      const control = component.formGroup.controls.masterPassword;
++      control.setValue(password);
++      expect(control.valid).toBe(true);
++      expect(control.value).toBe(password);
++    },
++  );
++
++  it("rejects an empty password", () => {
++    const component = Reflect.construct(LoginComponent, services) as LoginComponent;
++    expect(component.formGroup.controls.masterPassword.invalid).toBe(true);
++  });
++});
+--- a/libs/common/src/admin-console/services/policy/default-policy.service.ts
++++ b/libs/common/src/admin-console/services/policy/default-policy.service.ts
+@@ -212,45 +212,13 @@
+   }
+ 
+   evaluateMasterPassword(
+-    passwordStrength: number,
+-    newPassword: string,
+-    enforcedPolicyOptions?: MasterPasswordPolicyOptions,
++    _passwordStrength: number,
++    _newPassword: string,
++    _enforcedPolicyOptions?: MasterPasswordPolicyOptions,
+   ): boolean {
+-    if (!enforcedPolicyOptions) {
+-      return true;
+-    }
+-
+-    if (
+-      enforcedPolicyOptions.minComplexity > 0 &&
+-      enforcedPolicyOptions.minComplexity > passwordStrength
+-    ) {
+-      return false;
+-    }
+-
+-    if (
+-      enforcedPolicyOptions.minLength > 0 &&
+-      enforcedPolicyOptions.minLength > newPassword.length
+-    ) {
+-      return false;
+-    }
+-
+-    if (enforcedPolicyOptions.requireUpper && newPassword.toLocaleLowerCase() === newPassword) {
+-      return false;
+-    }
+-
+-    if (enforcedPolicyOptions.requireLower && newPassword.toLocaleUpperCase() === newPassword) {
+-      return false;
+-    }
+-
+-    if (enforcedPolicyOptions.requireNumbers && !/[0-9]/.test(newPassword)) {
+-      return false;
+-    }
+-
+-    // eslint-disable-next-line
+-    if (enforcedPolicyOptions.requireSpecial && !/[!@#$%\^&*]/g.test(newPassword)) {
+-      return false;
+-    }
+-
++    // Vault explicitly overrides organization master-password requirements.
++    // Bounds apply in InputPasswordComponent only: login must accept existing
++    // passwords longer than 12. Weak and breached-password warnings remain.
+     return true;
+   }
+ 
+--- a/libs/common/src/admin-console/services/policy/default-policy.service.spec.ts
++++ b/libs/common/src/admin-console/services/policy/default-policy.service.spec.ts
+@@ -269,19 +269,24 @@
+   });
+ 
+   describe("evaluateMasterPassword", () => {
+-    it("false", async () => {
+-      const enforcedPolicyOptions = new MasterPasswordPolicyOptions();
+-      enforcedPolicyOptions.minLength = 14;
+-      const result = policyService.evaluateMasterPassword(10, "password", enforcedPolicyOptions);
+-
+-      expect(result).toEqual(false);
+-    });
+-
+-    it("true", async () => {
+-      const enforcedPolicyOptions = new MasterPasswordPolicyOptions();
+-      const result = policyService.evaluateMasterPassword(0, "password", enforcedPolicyOptions);
+-
+-      expect(result).toEqual(true);
++    it.each(["a", "!", "a".repeat(12), "existing long password".repeat(8)])(
++      "overrides organization requirements without restricting existing passwords",
++      (password) => {
++        const enforcedPolicyOptions = Object.assign(new MasterPasswordPolicyOptions(), {
++          minLength: 20,
++          minComplexity: 4,
++          requireUpper: true,
++          requireLower: true,
++          requireNumbers: true,
++          requireSpecial: true,
++          enforceOnLogin: true,
++        });
++        expect(policyService.evaluateMasterPassword(0, password, enforcedPolicyOptions)).toBe(true);
++      },
++    );
++
++    it("allows passwords when no organization policy applies", () => {
++      expect(policyService.evaluateMasterPassword(0, "a")).toBe(true);
+     });
+   });
+ 
+--- /dev/null
++++ b/scripts/vault-password-crypto.test.ts
+@@ -0,0 +1,108 @@
++import { describe, expect, test } from "bun:test";
++import { readFileSync } from "node:fs";
++
++import JSON5 from "json5";
++
++import { PureCrypto, type Kdf } from "@bitwarden/sdk-internal";
++
++// All input is public dummy data. Exercise the pinned client's real WASM crypto;
++// do not connect to a server, load account state, or log keys or wrapped keys.
++const salt = "dummy@example.invalid";
++const kdfs: [string, Kdf][] = [
++  ["PBKDF2", { pBKDF2: { iterations: 600000 } }],
++  ["Argon2id", { argon2id: { iterations: 3, memory: 64, parallelism: 4 } }],
++];
++
++for (const [name, kdf] of kdfs) {
++  describe(`Vault password compatibility: ${name}`, () => {
++    test.each(["a", "a!b?C d#e$F%", "long-existing-password!".repeat(6)])(
++      "unwraps the same user key with the full password",
++      (password) => {
++        const key = PureCrypto.make_user_key_aes256_cbc_hmac();
++        const wrapped = PureCrypto.encrypt_user_key_with_master_password(key, password, salt, kdf);
++        const recovered = PureCrypto.decrypt_user_key_with_master_password(
++          wrapped,
++          password,
++          salt,
++          kdf,
++        );
++        expect(Buffer.from(key).equals(Buffer.from(recovered))).toBe(true);
++        expect(() =>
++          PureCrypto.decrypt_user_key_with_master_password(wrapped, password + "x", salt, kdf),
++        ).toThrow();
++      },
++      30000,
++    );
++
++    test("rewraps a legacy key with a short password while retaining encrypted items", () => {
++      const key = PureCrypto.make_user_key_aes256_cbc_hmac();
++      const item = PureCrypto.symmetric_encrypt_string("public dummy vault item", key);
++      const legacyPassword = "legacy-password-longer-than-twelve!";
++      const oldWrapped = PureCrypto.encrypt_user_key_with_master_password(
++        key,
++        legacyPassword,
++        salt,
++        kdf,
++      );
++      const recovered = PureCrypto.decrypt_user_key_with_master_password(
++        oldWrapped,
++        legacyPassword,
++        salt,
++        kdf,
++      );
++      const newWrapped = PureCrypto.encrypt_user_key_with_master_password(
++        recovered,
++        "!",
++        salt,
++        kdf,
++      );
++      const newRecovered = PureCrypto.decrypt_user_key_with_master_password(
++        newWrapped,
++        "!",
++        salt,
++        kdf,
++      );
++      expect(
++        PureCrypto.symmetric_decrypt_string(item, newRecovered) === "public dummy vault item",
++      ).toBe(true);
++      expect(Buffer.from(key).equals(Buffer.from(newRecovered))).toBe(true);
++      // Both strings share their first twelve characters: this catches truncation.
++      expect(() =>
++        PureCrypto.decrypt_user_key_with_master_password(
++          oldWrapped,
++          legacyPassword.slice(0, 12),
++          salt,
++          kdf,
++        ),
++      ).toThrow();
++      expect(() =>
++        PureCrypto.decrypt_user_key_with_master_password(
++          oldWrapped,
++          legacyPassword + "different",
++          salt,
++          kdf,
++        ),
++      ).toThrow();
++    }, 30000);
++  });
++}
++
++test("Bun migration retains upstream resolved package versions", () => {
++  const original = JSON.parse(
++    readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"),
++  );
++  const migrated = JSON5.parse(readFileSync(new URL("../bun.lock", import.meta.url), "utf8"));
++  const versions = new Set(
++    Object.entries(original.packages)
++      .filter(([path, entry]: [string, any]) => path.includes("node_modules/") && entry.version)
++      .map(
++        ([path, entry]: [string, any]) =>
++          `${path.slice(path.lastIndexOf("node_modules/") + 13)}@${entry.version}`,
++      ),
++  );
++  const packages = Object.values(migrated.packages)
++    .map((entry: any) => entry[0] as string)
++    .filter((id) => !id.includes("@workspace:") && !id.includes("@file:"));
++  expect(packages.length).toBeGreaterThan(2000);
++  expect(packages.every((id) => versions.has(id))).toBe(true);
++});

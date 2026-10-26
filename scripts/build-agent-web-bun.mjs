@@ -2,9 +2,10 @@
 // Bun-managed pinned web build with a documented Angular compiler exception.
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compilerMemoryBudget } from './web-build-resources.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const tools = join(root, 'tooling/agent-web');
@@ -130,6 +131,18 @@ export function verifyCandidate(input, installed = false) {
     assert(bunLock.packages[name]?.[0] === `${name}@${version}`, `Critical version drift: ${name}`);
   }
   assert(json(join(candidate, 'apps/web/package.json')).version === pin.webVersion, 'Web app version drift');
+  const passwordReceipt = join(candidate, 'vault-password-source-receipt.json');
+  if (existsSync(passwordReceipt)) {
+    regular(passwordReceipt);
+    const password = json(passwordReceipt);
+    assert(password.passwordPatchSha256 === fileSha(join(root, 'patches/web-password/source.patch')),
+      'Password patch receipt differs from owned source');
+    assert(password.upstreamCommit === pin.sourceCommit, 'Password source pin changed');
+    for (const [name, digest] of Object.entries(password.filesSha256 || {})) {
+      assert(within(candidate, resolve(candidate, name)) && fileSha(join(candidate, name)) === digest,
+        `Password candidate drift: ${name}`);
+    }
+  }
   return { candidate, receipt, retained: retained.size, omitted: omitted.length };
 }
 
@@ -159,14 +172,20 @@ async function main() {
   }
   // Fail before a heavyweight install when the required compiler is unavailable.
   let node;
+  let compilerHeapMiB = 4096;
   if (mode === '--build') {
+    if (process.platform === 'linux') {
+      const budget = compilerMemoryBudget(readFileSync('/proc/meminfo', 'utf8'));
+      compilerHeapMiB = budget.heapMiB;
+      console.log(`Compiler memory: ${compilerHeapMiB} MiB heap; ${budget.availableMiB} MiB currently available`);
+    }
     node = Bun.which('node');
     assert(node, 'Node 26.12.0 is required for the documented Angular compiler exception');
     const version = Bun.spawnSync([node, '--version'], { stdout: 'pipe', stderr: 'pipe' });
     assert(version.exitCode === 0 && new TextDecoder().decode(version.stdout).trim() === 'v26.12.0',
       'Angular compiler requires the reviewed Node 26.12.0; no runtime fallback was attempted');
   }
-  const installArgs = ['install', '--frozen-lockfile', '--ignore-scripts', '--prefer-offline', '--network-concurrency=8'];
+  const installArgs = ['install', '--frozen-lockfile', '--ignore-scripts', '--prefer-offline', '--network-concurrency=8', '--backend=copyfile'];
   if (mode === '--lock-check') installArgs.push('--lockfile-only');
   const result = Bun.spawnSync([process.execPath, ...installArgs], {
     cwd: verified.candidate, env: { ...process.env, NODE_ENV: 'development' }, stdout: 'inherit', stderr: 'inherit',
@@ -180,10 +199,12 @@ async function main() {
   process.env.ENV = 'selfhosted';
   process.env.NODE_ENV = 'production';
   process.env.LOGGING = 'false';
-  process.env.CACHE_TAG = `vault-agent-${sha(JSON.stringify(verified.receipt)).slice(0, 16)}`;
+  const passwordReceiptPath = join(verified.candidate, 'vault-password-source-receipt.json');
+  const passwordReceipt = existsSync(passwordReceiptPath) ? json(passwordReceiptPath) : null;
+  process.env.CACHE_TAG = `vault-agent-${sha(JSON.stringify({ agent: verified.receipt, password: passwordReceipt })).slice(0, 16)}`;
   // A documented compiler-only exception for the complete Angular graph.
   // Bun still owns dependency installation, pins, orchestration and new apps.
-  const build = Bun.spawn([node, '--max-old-space-size=4096', join(root, 'scripts/compile-agent-web-node.mjs'), verified.candidate], {
+  const build = Bun.spawn([node, `--max-old-space-size=${compilerHeapMiB}`, join(root, 'scripts/compile-agent-web-node.mjs'), verified.candidate], {
     cwd: root, env: process.env, stdout: 'inherit', stderr: 'inherit',
   });
   assert(await build.exited === 0, 'Angular compiler failed; no fallback or dependency update was attempted');
@@ -201,8 +222,10 @@ export async function buildWeb(candidate) {
   const config = require(join(candidate, 'apps/web/webpack.config.js'))();
   const minimizers = config.optimization?.minimizer;
   assert(minimizers?.length === 1 && minimizers[0]?.constructor.name === 'TerserPlugin', 'Unexpected minifier; review resource settings');
-  minimizers[0].options.parallel = 1;
-  // The full production source-map/minification graph exceeds this 8 GiB Mac.
+  // Keep minification inside the compiler process on this shared VPS. A worker
+  // duplicates the full graph and builds were terminated during asset processing.
+  minimizers[0].options.parallel = false;
+  // Full production source maps can exceed local build memory budgets.
   // Release maps are optional debug artifacts; keep production optimization.
   config.devtool = false;
   let previousStage = '';
