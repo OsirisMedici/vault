@@ -40,3 +40,8 @@ Source:
 - https://github.com/vaultwarden/vw_web_builds/tree/v2026.7.0%2B0
 - https://github.com/dani-garcia/vaultwarden/wiki/Customize-Vaultwarden-CSS
 - https://github.com/bitwarden/server/blob/main/TRADEMARK_GUIDELINES.md
+
+The password-length candidate changes client form validation and organization
+master-password policy evaluation. It preserves server and cryptographic
+implementations and the existing Agent access layer. Source changes are retained
+in `patches/web-password/source.patch`; existing notices remain intact.

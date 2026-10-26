@@ -100,3 +100,11 @@ directory, credentials, vault database, exports or backups.
 Vault's original files are GPL-3.0-only. The server is AGPLv3 and the client
 has its own license map. Existing upstream notices and disclaimers are retained.
 See [NOTICE.md](NOTICE.md). The Vault name has not received trademark clearance.
+
+## Password-length release candidate
+
+The password-only patch allows new master passwords of 1–12 characters and
+overrides organization master-password rules at Osiris's request. It preserves
+existing longer passwords, encryption, server behavior and the deployed Agent
+access UI. Very short passwords weaken protection against offline guessing.
+See [deployment access and validation](docs/master-password-length.md).
