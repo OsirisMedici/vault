@@ -28,12 +28,16 @@ jobs:
           docker build -t vault-local:overlay .
       - name: Verify the running demo
         run: |
-          docker run --rm --detach --name vault-smoke \
+          docker run --detach --name vault-smoke \
             -p 127.0.0.1:8000:80 \
+            --tmpfs /data \
             -e DOMAIN=http://127.0.0.1:8000 \
             -e SIGNUPS_ALLOWED=false \
             vault-local:overlay
-          trap 'docker stop vault-smoke >/dev/null' EXIT
-          curl --fail --silent --show-error --retry 20 --retry-all-errors \
-            --retry-delay 1 --max-time 3 http://127.0.0.1:8000/alive
+          trap 'docker rm -f vault-smoke >/dev/null' EXIT
+          if ! curl --fail --silent --show-error --retry 20 --retry-all-errors \
+            --retry-delay 1 --max-time 3 http://127.0.0.1:8000/alive; then
+            docker logs --tail 40 vault-smoke
+            exit 1
+          fi
           python3 scripts/verify-release.py http://127.0.0.1:8000
