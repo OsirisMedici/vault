@@ -36,7 +36,7 @@ References: [Vaultwarden pin](../../upstream.lock.json), [Bitwarden CLI](https:/
 
 ## Vault Launcher on the Mac
 
-The reference is [Matt Davidson’s WorkOS Passport demo at 2:57](https://www.youtube.com/watch?v=KWqIznYPcg0&t=177s). The pilot adds a Vault menu next to the other macOS status items. It prepares two demo app sessions when opened. Once the menu says both apps are signed in, selecting Design Library or Project Notes opens the workspace with the verified account.
+The reference is [Matt Davidson’s WorkOS Passport demo at 2:57](https://www.youtube.com/watch?v=KWqIznYPcg0&t=177s). The pilot adds a Vault menu next to the other macOS status items. Choose Design Library or Project Notes when the menu is ready. Automatic Sign-In starts off. Select a demo app with the switch off to try the explicit confirmation, or turn it on to sign in with one click. The app remembers the switch across launches and prepares both demo sessions at startup when enabled.
 
 From the repository root, with the prerequisites above and the macOS Command Line Tools:
 
@@ -47,4 +47,10 @@ open ".cache/vault-launcher/Vault Launcher.app"
 
 Use **Quit Vault Launcher** in the Vault menu to close both demo sessions and stop the disposable vault. The build lives under this checkout’s ignored `.cache` directory. It is a local build with an ad hoc signature and a separate bundle ID.
 
-The trusted helper gets each synthetic login from disposable Vaultwarden, signs in to the exact loopback fixture, and verifies the session’s identity. Each embedded window uses a separate memory-only WebKit data store and displays the workspace only after it verifies the same identity. The native process receives the synthetic session cookie through a private pipe. Karen continues to use the separate grant-controlled pilot. Production provider enrollment, sign-in policy, and session refresh are future work.
+The trusted helper checks the account and workspace before each open. An active session can still open with Automatic Sign-In off. An expired session needs confirmation when off and is renewed when on. A different account or workspace blocks the launch until the user confirms the demo identity. Each window uses a separate memory-only WebKit data store and independently verifies its account and workspace before showing content. The helper sends a verified synthetic cookie over the private pipe. Karen continues to use the separate grant-controlled pilot.
+
+Run `bun test integrations/agent-access-pilot` from the repository root for broker and launcher checks. Run the generated app’s executable with `--verify-launches` to exercise manual and automatic launches, existing sessions, and expiry through Vaultwarden and WebKit. This mode uses disposable data and leaves the stored preference alone.
+
+### First provider: Notion
+
+Use an owner-approved test workspace and verify both the intended Notion account and workspace after launch. Start with the workspace’s existing sign-in method. For an already configured SAML workspace, test the supported identity-provider flow. Notion requires an eligible workspace plan, a verified domain, and an owner-configured identity provider for SAML. Other workspaces use Notion’s normal sign-in flow with the owner completing any passkey, verification code, or account selection. The exact workspace, account and enrollment route are pending. A Notion API or MCP token does not establish a browser session. [Notion login options](https://www.notion.com/help/log-in-and-out) · [Notion SAML requirements](https://www.notion.com/help/saml-sso-configuration)

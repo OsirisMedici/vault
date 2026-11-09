@@ -6,9 +6,14 @@ const page = '<!doctype html><meta charset="utf-8"><title>Fixture login</title>'
   '<form method="post" action="/login" autocomplete="off"><label>Email <input name="username" type="email" autocomplete="username"></label>' +
   '<label>Password <input name="password" type="password" autocomplete="current-password"></label><button type="submit">Sign in</button></form>';
 
-export function startFixture() {
+const launcherWorkspaces = new Map([
+  ['design@fixture.invalid', { id: 'design', name: 'Design Library', description: 'Brand assets and shared components.' }],
+  ['notes@fixture.invalid', { id: 'notes', name: 'Project Notes', description: 'Meeting notes and project decisions.' }],
+]);
+
+export function startFixture(options: { sessionTtlMs?: number } = {}) {
   const hashes = new Map<string, Buffer>();
-  const sessions = new Map<string, string>();
+  const sessions = new Map<string, { identity: string; expiresAt: number }>();
   let reads = 0;
   const server = Bun.serve({
     hostname: '127.0.0.1', port: 0, maxRequestBodySize: 4096,
@@ -20,17 +25,22 @@ export function startFixture() {
         'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; form-action 'self'; frame-ancestors 'none'",
       };
       const session = req.headers.get('cookie')?.match(/(?:^|; )fixture_session=([\w-]+)(?:;|$)/)?.[1] ?? '';
-      const identity = sessions.get(session);
+      const entry = sessions.get(session);
+      const identity = entry && entry.expiresAt > Date.now() ? entry.identity : undefined;
+      if (entry && !identity) sessions.delete(session);
+      const workspace = identity ? launcherWorkspaces.get(identity) : undefined;
+      if (req.method === 'GET' && url.pathname === '/launcher-session') {
+        if (!identity) return new Response(null, { headers, status: 401 });
+        return Response.json({ identity, workspace: workspace?.id }, { headers });
+      }
       if (req.method === 'GET' && url.pathname === '/identity') return new Response(identity ?? 'Signed out', { headers });
       if (req.method === 'GET' && url.pathname === '/read-only') {
         if (identity) reads++;
         return new Response(identity ? '2 sample records' : 'Signed out', { headers, status: identity ? 200 : 401 });
       }
       if (req.method === 'GET' && url.pathname === '/app') {
-        const app = identity === 'design@fixture.invalid' ? 'Design Library' :
-          identity === 'notes@fixture.invalid' ? 'Project Notes' : null;
-        if (!app) return new Response('Sign-in required', { headers, status: 401 });
-        const content = app === 'Design Library' ? 'Brand assets and shared components.' : 'Meeting notes and project decisions.';
+        if (!workspace) return new Response('Sign-in required', { headers, status: 401 });
+        const { name: app, description: content, id } = workspace;
         return new Response(`<!doctype html><meta charset="utf-8"><title>${app}</title>
           <style>
           :root { color-scheme: light dark; font: 16px -apple-system, system-ui; }
@@ -39,7 +49,7 @@ export function startFixture() {
           small { font-weight: 650; color: GrayText; } h1 { margin: 12px 0; font-size: 36px; }
           p { line-height: 1.55; } #identity { font-weight: 600; }
           </style>
-          <main><small>VAULT · DEMO WORKSPACE</small><h1>${app}</h1><p>${content}</p>
+          <main data-workspace="${id}"><small>VAULT · DEMO WORKSPACE</small><h1>${app}</h1><p>${content}</p>
           <p>Signed in as <span id="identity">${identity}</span></p></main>`, {
           headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8',
             'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" },
@@ -55,7 +65,11 @@ export function startFixture() {
         if (typeof username !== 'string' || typeof password !== 'string' || !expected ||
           !timingSafeEqual(expected, digest(password))) return new Response('Invalid sign in', { status: 401, headers });
         const next = randomSecret();
-        sessions.set(next, username);
+        const now = Date.now();
+        for (const [key, value] of sessions) {
+          if (value.expiresAt <= now) sessions.delete(key);
+        }
+        sessions.set(next, { identity: username, expiresAt: now + (options.sessionTtlMs ?? Infinity) });
         return new Response(null, { status: 303, headers: { ...headers, Location: '/identity',
           'Set-Cookie': `fixture_session=${next}; HttpOnly; SameSite=Strict; Path=/` } });
       }
@@ -66,6 +80,7 @@ export function startFixture() {
     origin: server.url.origin,
     setAccount: (identity: string, password: string) => hashes.set(identity, digest(password)),
     reads: () => reads,
+    expireSession: (cookie: string) => sessions.delete(cookie),
     stop: () => server.stop(true),
   };
 }

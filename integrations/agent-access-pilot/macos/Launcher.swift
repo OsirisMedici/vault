@@ -3,13 +3,19 @@ import WebKit
 
 private struct Message: Decodable {
     let status: String
-    let name: String?
+    let requestId: Int?
+    let id: String?
+    let origin: URL?
+    let automaticSignIn: Bool?
+    let source: String?
+    let reason: String?
     let identity: String?
     let url: URL?
     let cookie: String?
 }
 
 private final class Workspace: NSObject, WKNavigationDelegate {
+    let id: String
     let name: String
     let identity: String
     let url: URL
@@ -17,7 +23,8 @@ private final class Workspace: NSObject, WKNavigationDelegate {
     private let web: WKWebView
     var verified: ((Bool) -> Void)?
 
-    init(name: String, identity: String, url: URL) {
+    init(id: String, name: String, identity: String, url: URL) {
+        self.id = id
         self.name = name
         self.identity = identity
         self.url = url
@@ -76,9 +83,9 @@ private final class Workspace: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        web.evaluateJavaScript("document.getElementById('identity')?.textContent") { [weak self] result, error in
+        web.evaluateJavaScript("[document.getElementById('identity')?.textContent, document.querySelector('main')?.dataset.workspace]") { [weak self] result, error in
             guard let self else { return }
-            guard error == nil, result as? String == identity else { failed(); return }
+            guard error == nil, result as? [String] == [identity, id] else { failed(); return }
             web.isHidden = false
             verified?(true)
         }
@@ -99,16 +106,21 @@ private final class Launcher: NSObject, NSApplicationDelegate {
     private let helper = Process()
     private let input = Pipe()
     private let output = Pipe()
-    private var workspaces: [String: Workspace] = [:]
-    private var failedApps: Set<String> = []
-    private var prepared = false
-    private var pending = 0
-    private var stopping = false
-    private var startedVerification = false
-    private var resultCode: Int32 = 0
+    private let apps = [
+        (id: "design", name: "Design Library", identity: "design@fixture.invalid"),
+        (id: "notes", name: "Project Notes", identity: "notes@fixture.invalid")
+    ]
     private let verify = CommandLine.arguments.contains("--verify-launches")
-    private let names = ["Design Library", "Project Notes"]
-    private let identities = ["Design Library": "design@fixture.invalid", "Project Notes": "notes@fixture.invalid"]
+    private let preferenceKey = "AutomaticSignIn"
+    private var workspaces: [String: Workspace] = [:]
+    private var origin: URL?
+    private var automaticSignIn = false
+    private var nextRequestId = 0
+    private var reply: ((id: Int, handler: (Message?) -> Void))?
+    private var loadingWindow = false
+    private var stopping = false
+    private var helperFailed = false
+    private var resultCode: Int32 = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -118,25 +130,30 @@ private final class Launcher: NSObject, NSApplicationDelegate {
         status.button?.setAccessibilityLabel("Vault Launcher")
         status.menu = menu
         menu.autoenablesItems = false
+        automaticSignIn = !verify && UserDefaults.standard.bool(forKey: preferenceKey)
         updateMenu()
         startHelper()
     }
 
     private func updateMenu() {
         menu.removeAllItems()
-        let headline = prepared && pending == 0 ? "\(workspaces.count) of \(names.count) demo apps signed in" :
-            "Signing in to demo apps…"
-        let heading = menu.addItem(withTitle: headline, action: nil, keyEquivalent: "")
-        heading.isEnabled = false
+        let headline = helperFailed ? "Vault Launcher unavailable" :
+            origin == nil ? "Preparing demo apps…" :
+            reply != nil || loadingWindow ? "Checking sign-in…" : "Vault demo apps"
+        menu.addItem(withTitle: headline, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
-        for name in names {
-            let title = failedApps.contains(name) ? name + " · Sign-in unavailable" : name
-            let item = menu.addItem(withTitle: title, action: #selector(selectApp(_:)), keyEquivalent: "")
+        let enabled = origin != nil && !helperFailed && !stopping && reply == nil && !loadingWindow
+        for app in apps {
+            let item = menu.addItem(withTitle: app.name, action: #selector(selectApp(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = name
-            item.isEnabled = workspaces[name] != nil
+            item.representedObject = app.id
+            item.isEnabled = enabled
         }
         menu.addItem(.separator())
+        let toggle = menu.addItem(withTitle: "Automatic Sign-In", action: #selector(toggleSignIn), keyEquivalent: "")
+        toggle.target = self
+        toggle.state = automaticSignIn ? .on : .off
+        toggle.isEnabled = enabled
         let quit = menu.addItem(withTitle: "Quit Vault Launcher", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         quit.isEnabled = !stopping
@@ -155,11 +172,20 @@ private final class Launcher: NSObject, NSApplicationDelegate {
         helper.environment = [
             "HOME": NSHomeDirectory(), "TMPDIR": NSTemporaryDirectory(),
             "PATH": NSHomeDirectory() + "/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+            "VAULT_LAUNCHER_PIPE": "1",
+            "VAULT_LAUNCHER_AUTO": automaticSignIn ? "1" : "0",
+            "VAULT_LAUNCHER_VERIFY": verify ? "1" : "0"
         ]
         helper.standardInput = input
         helper.standardOutput = output
         helper.standardError = FileHandle.nullDevice
-        helper.terminationHandler = { [weak self] _ in DispatchQueue.main.async { self?.helperEnded() } }
+        helper.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if self.stopping { exit(self.resultCode) }
+                self.helperUnavailable()
+            }
+        }
         do { try helper.run() } catch { helperUnavailable(); return }
         let stream = output.fileHandleForReading
         DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -179,96 +205,203 @@ private final class Launcher: NSObject, NSApplicationDelegate {
             }
             try? stream.close()
         }
-        if verify {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self] in
-                guard let self, !stopping else { return }
-                finishVerification(success: false)
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 180) { [weak self] in
+            guard let self, !stopping else { return }
+            if verify { finishVerification(success: false) }
+            else if origin == nil { helperUnavailable() }
         }
     }
 
     private func receive(_ message: Message) {
-        guard !stopping else { return }
-        if message.status == "ready" {
-            prepared = true
-        } else if let name = message.name, let expected = identities[name], expected == message.identity {
-            if message.status == "signed-in", let url = message.url, let cookie = message.cookie,
-               url.scheme == "http", url.host == "127.0.0.1", url.port != nil, url.path == "/app",
-               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
-               cookie.count == 43, cookie.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) {
-                let workspace = Workspace(name: name, identity: expected, url: url)
-                pending += 1
-                if !workspace.prepare(cookie: cookie, completion: { [weak self] in
-                    guard let self, !stopping else { return }
-                    pending -= 1
-                    workspace.verified = { [weak self] ok in
-                        if !ok { self?.showUnavailable(name) }
-                    }
-                    workspaces[name] = workspace
-                    updateMenu()
-                    verifyIfReady()
-                }) {
-                    pending -= 1
-                    failedApps.insert(name)
-                }
-            } else {
-                failedApps.insert(name)
-            }
+        guard !stopping, !helperFailed else { return }
+        if message.status == "ready", origin == nil, let url = message.origin,
+           url.scheme == "http", url.host == "127.0.0.1", url.port != nil, url.path.isEmpty,
+           url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+           message.automaticSignIn == automaticSignIn {
+            origin = url
+            updateMenu()
+            if verify { runVerification() }
+        } else if let current = reply, message.requestId == current.id {
+            reply = nil
+            updateMenu()
+            current.handler(message)
         }
-        updateMenu()
-        verifyIfReady()
     }
 
-    private func showUnavailable(_ name: String) {
-        failedApps.insert(name)
-        workspaces.removeValue(forKey: name)
+    private func send(_ command: String, id: String? = nil, enabled: Bool? = nil,
+                      completion: @escaping (Message?) -> Void) {
+        guard origin != nil, !stopping, !helperFailed, reply == nil else { completion(nil); return }
+        nextRequestId += 1
+        let requestId = nextRequestId
+        var data: [String: Any] = ["command": command, "requestId": requestId]
+        if let id { data["id"] = id }
+        if let enabled { data["enabled"] = enabled }
+        reply = (requestId, completion)
         updateMenu()
-        let alert = NSAlert()
-        alert.messageText = "\(name) needs sign-in"
-        alert.informativeText = "Quit and reopen Vault Launcher to start a fresh demo session."
-        alert.runModal()
-    }
-
-    private func helperEnded() {
-        if stopping { exit(resultCode) }
-        helperUnavailable()
+        do {
+            var line = try JSONSerialization.data(withJSONObject: data)
+            line.append(10)
+            try input.fileHandleForWriting.write(contentsOf: line)
+        } catch {
+            helperUnavailable()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 45) { [weak self] in
+            guard let self, reply?.id == requestId else { return }
+            helperUnavailable()
+        }
     }
 
     private func helperUnavailable() {
+        helperFailed = true
+        let waiting = reply
+        reply = nil
         workspaces.values.forEach { $0.window.orderOut(nil) }
-        workspaces.removeAll()
-        failedApps = Set(names)
-        prepared = true
-        pending = 0
         updateMenu()
-        verifyIfReady()
+        try? input.fileHandleForWriting.close()
+        waiting?.handler(nil)
+        if verify && !stopping { finishVerification(success: false) }
+    }
+
+    private func setPolicy(_ enabled: Bool, completion: @escaping (Bool) -> Void) {
+        send("set-policy", enabled: enabled) { [weak self] message in
+            guard let self else { return }
+            guard message?.status == "policy", message?.automaticSignIn == enabled else { completion(false); return }
+            automaticSignIn = enabled
+            if !verify { UserDefaults.standard.set(enabled, forKey: preferenceKey) }
+            updateMenu()
+            completion(true)
+        }
+    }
+
+    @objc private func toggleSignIn() {
+        setPolicy(!automaticSignIn) { [weak self] ok in
+            if !ok { self?.notice("Automatic Sign-In is unavailable", "Quit and reopen Vault Launcher to try again.") }
+        }
     }
 
     @objc private func selectApp(_ item: NSMenuItem) {
-        guard let name = item.representedObject as? String else { return }
-        workspaces[name]?.open()
+        guard let id = item.representedObject as? String else { return }
+        open(id)
     }
 
-    private func verifyIfReady() {
-        guard verify, prepared, pending == 0, !startedVerification else { return }
-        startedVerification = true
-        guard workspaces.count == names.count else { finishVerification(success: false); return }
-        verifyOpening([names[0], names[1], names[0]])
-    }
-
-    private func verifyOpening(_ remaining: [String]) {
-        guard let name = remaining.first else { finishVerification(success: true); return }
-        guard let workspace = workspaces[name],
-              let item = menu.items.first(where: { $0.representedObject as? String == name }),
-              item.isEnabled else { finishVerification(success: false); return }
-        workspace.verified = { [weak self, weak workspace] ok in
-            guard let self, let workspace else { return }
-            guard ok else { finishVerification(success: false); return }
-            print("Opened \(name) already signed in as \(workspace.identity)")
-            workspace.window.close()
-            DispatchQueue.main.async { self.verifyOpening(Array(remaining.dropFirst())) }
+    private func open(_ id: String, confirmed: Bool = false) {
+        guard let app = apps.first(where: { $0.id == id }) else { return }
+        send(confirmed ? "confirm-demo" : "open", id: id) { [weak self] message in
+            guard let self else { return }
+            if !confirmed, message?.status == "manual-required" || message?.status == "wrong-account" {
+                let title = message?.status == "wrong-account" ? "Different account detected" :
+                    message?.reason == "expired" ? "Demo session expired" : "Sign-in required"
+                if notice(title, "Confirm sign-in to \(app.name) as \(app.identity).", confirm: true) {
+                    open(id, confirmed: true)
+                }
+                return
+            }
+            guard let message, message.status == "signed-in" else {
+                notice("\(app.name) is unavailable", "Try again from the Vault menu.")
+                return
+            }
+            show(message, id: id) { [weak self] ok in
+                if !ok { self?.notice("Could not verify \(app.name)", "Open it again from the Vault menu to recheck the session.") }
+            }
         }
-        selectApp(item)
+    }
+
+    private func show(_ message: Message, id: String, completion: @escaping (Bool) -> Void) {
+        guard let app = apps.first(where: { $0.id == id }),
+              let origin, let url = message.url, let cookie = message.cookie,
+              message.id == id, message.identity == app.identity,
+              url == origin.appendingPathComponent("app"),
+              cookie.count == 43, cookie.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }) else {
+            completion(false)
+            return
+        }
+        let workspace = workspaces[id] ?? Workspace(id: id, name: app.name, identity: app.identity, url: url)
+        workspaces[id] = workspace
+        loadingWindow = true
+        updateMenu()
+        workspace.verified = { [weak self, weak workspace] ok in
+            guard let self else { return }
+            workspace?.verified = nil
+            loadingWindow = false
+            updateMenu()
+            completion(ok)
+        }
+        if !workspace.prepare(cookie: cookie, completion: { [weak self, weak workspace] in
+            guard self?.stopping == false else { return }
+            workspace?.open()
+        }) {
+            workspace.verified?(false)
+        }
+    }
+
+    @discardableResult
+    private func notice(_ title: String, _ detail: String, confirm: Bool = false) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.addButton(withTitle: confirm ? "Sign In to Demo" : "OK")
+        if confirm { alert.addButton(withTitle: "Cancel") }
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private struct Check {
+        let command: String
+        var id: String? = nil
+        var enabled: Bool? = nil
+        let status: String
+        var source: String? = nil
+        var reason: String? = nil
+    }
+
+    private func runVerification() {
+        let checks = [
+            Check(command: "open", id: "design", status: "manual-required", reason: "signed-out"),
+            Check(command: "confirm-demo", id: "design", status: "signed-in", source: "manual"),
+            Check(command: "set-policy", enabled: true, status: "policy"),
+            Check(command: "open", id: "notes", status: "signed-in", source: "automatic"),
+            Check(command: "open", id: "design", status: "signed-in", source: "existing"),
+            Check(command: "expire-test", id: "notes", status: "expired-test"),
+            Check(command: "open", id: "notes", status: "signed-in", source: "automatic"),
+            Check(command: "set-policy", enabled: false, status: "policy"),
+            Check(command: "open", id: "design", status: "signed-in", source: "existing"),
+            Check(command: "expire-test", id: "notes", status: "expired-test"),
+            Check(command: "open", id: "notes", status: "manual-required", reason: "expired"),
+        ]
+        verifyNext(checks[...])
+    }
+
+    private func verifyNext(_ checks: ArraySlice<Check>) {
+        guard let check = checks.first else { finishVerification(success: true); return }
+        let advance = { [weak self] in
+            DispatchQueue.main.async { self?.verifyNext(checks.dropFirst()) }
+        }
+        if let enabled = check.enabled {
+            setPolicy(enabled) { [weak self] ok in
+                guard ok else { self?.finishVerification(success: false); return }
+                print("Automatic sign-in \(enabled ? "enabled" : "paused")")
+                advance()
+            }
+            return
+        }
+        send(check.command, id: check.id) { [weak self] message in
+            guard let self else { return }
+            guard let message, message.status == check.status, message.source == check.source,
+                  message.reason == check.reason else { finishVerification(success: false); return }
+            guard let id = check.id, message.status == "signed-in" else {
+                print("\(check.id ?? "") \(message.status) \(message.reason ?? "")")
+                advance()
+                return
+            }
+            show(message, id: id) { [weak self] ok in
+                guard let self else { return }
+                guard ok else { finishVerification(success: false); return }
+                print("Verified \(id) workspace and identity via \(message.source ?? "")")
+                workspaces[id]?.window.close()
+                advance()
+            }
+        }
     }
 
     private func finishVerification(success: Bool) {

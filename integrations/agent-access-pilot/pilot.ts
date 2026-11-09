@@ -55,7 +55,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => 
 
 async function main() {
   if (mode === 'launcher') {
-    fixture = startFixture();
+    fixture = startFixture({ sessionTtlMs: 30 * 60_000 });
     vault = await openVault(root, protect);
     await serveLauncher(fixture, vault, protect);
     return;
