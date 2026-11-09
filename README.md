@@ -43,7 +43,7 @@ overlay from a fresh checkout or an empty asset and output directory.
 | Run Vault on an existing Vaultwarden host | [Operations and rollback](docs/operations.md) |
 | Evaluate the macOS desktop candidate | [Desktop source and signing status](docs/desktop.md) |
 | Explore agent credential brokering with dummy data | [Agent Vault evaluation](docs/agent-vault-evaluation-2026-10-22.md) |
-| Try the disposable Mac launcher and agent fixture | [Agent-access pilot source](https://github.com/OsirisMedici/vault/tree/codex/agent-access-pilot-public/integrations/agent-access-pilot) |
+| Set up the macOS menu launcher or try the disposable agent fixture | [Launcher and agent-access source](https://github.com/OsirisMedici/vault/tree/codex/agent-access-pilot-public/integrations/agent-access-pilot) |
 
 The local quickstart uses the display overlay. Building the compact workspace
 requires the separate web source pipeline above. The compact build supports

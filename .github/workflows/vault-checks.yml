@@ -41,3 +41,5 @@ jobs:
             exit 1
           fi
           python3 scripts/verify-release.py http://127.0.0.1:8000
+          curl --fail --silent --show-error http://127.0.0.1:8000/api/config \
+            | python3 -c 'import json, sys; assert json.load(sys.stdin)["settings"]["suppressOnboardingInterstitials"] is True'
