@@ -36,23 +36,41 @@ References: [Vaultwarden pin](../../upstream.lock.json), [Bitwarden CLI](https:/
 
 ## Vault Launcher on the Mac
 
-The reference is [Matt Davidson’s WorkOS Passport demo at 2:57](https://www.youtube.com/watch?v=KWqIznYPcg0&t=177s). The pilot adds a Vault menu next to the other macOS status items. Choose Design Library or Project Notes when the menu is ready. Automatic Sign-In starts off. Select a demo app with the switch off to try the explicit confirmation, or turn it on to sign in with one click. The app remembers the switch across launches and prepares both demo sessions at startup when enabled.
-
-From the repository root, with the prerequisites above and the macOS Command Line Tools:
+The launcher uses the existing signed-in session inside its **Vault Account**
+window. It needs a Vault web build with the Mac copy bridge and an HTTPS origin.
+Build it locally from the repository root with Bun and the macOS Command Line
+Tools.
 
 ```sh
-bash integrations/agent-access-pilot/macos/build.sh
+VAULT_LAUNCHER_URL=https://your-vault.example \
+  bash integrations/agent-access-pilot/macos/build.sh
 open ".cache/vault-launcher/Vault Launcher.app"
 ```
 
-Use **Quit Vault Launcher** in the Vault menu to close both demo sessions and stop the disposable vault. The build lives under this checkout’s ignored `.cache` directory. It is a local build with an ad hoc signature and a separate bundle ID.
+Click **Vault** in the menu bar, then **All Apps** to sign in and unlock
+privately. Search for a saved login or select a recent app. The app row copies
+the username and password, the key copies just the password, and the chain
+copies the app link. If more than one login matches, choose the correct account.
+The launcher remembers the selection. Vault enforces its lock timeout and item
+reprompts. Use the account window when an item requires a reprompt.
 
-The trusted helper checks the account and workspace before each open. An active session can still open with Automatic Sign-In off. An expired session needs confirmation when off and is renewed when on. A different account or workspace blocks the launch until the user confirms the demo identity. Each window uses a separate memory-only WebKit data store and independently verifies its account and workspace before showing content. The helper sends a verified synthetic cookie over the private pipe. Karen continues to use the separate grant-controlled pilot.
+Credentials copied through the menu are marked sensitive, stay on the Mac,
+and clear after 30 seconds if you have not copied something else. Closing
+the menu cancels a pending copy. Recent tiles use initials unless you provide
+local PNGs you have permission to use via `VAULT_LAUNCHER_ICON_DIR`. Name the
+files after the lower-case app names, such as `gmail.png`.
 
-Run `bun test integrations/agent-access-pilot` from the repository root for broker and launcher checks. Run the generated app’s executable with `--verify-launches` to exercise manual and automatic launches, existing sessions, and expiry through Vaultwarden and WebKit. This mode uses disposable data and leaves the stored preference alone.
+For Notion's **Continue with Google** flow, select the intended Google login
+under Gmail first. The Notion row and key use that selection. The Notion
+chain copies the site link. An optional `.local/notion-launch-url` file can
+hold an approved Notion page for the browser shortcut.
 
-### First provider: Notion
+The bundle is ad hoc signed for local use. The main menu's **Automatic
+sign-in** entry is planned. Run the launcher with `--demo-apps` to try the
+separate disposable sessions, or build without `VAULT_LAUNCHER_URL` to
+use the fixture without configuring a Vault account.
 
-Use an owner-approved test workspace and verify both the intended Notion account and workspace after launch. Start with the workspace’s existing sign-in method. For an already configured SAML workspace, test the supported identity-provider flow. Notion requires an eligible workspace plan, a verified domain, and an owner-configured identity provider for SAML. Other workspaces use Notion’s normal sign-in flow with the owner completing any passkey, verification code, or account selection. The first Notion test uses Google sign-in. A Notion API or MCP token does not establish a browser session. [Notion login options](https://www.notion.com/help/log-in-and-out) · [Notion SAML requirements](https://www.notion.com/help/saml-sso-configuration)
-
-The launcher’s **Open Notion** item hands the approved page to the system browser. It reads the owner-selected HTTPS page URL from the ignored `.local/notion-launch-url` file. The browser uses its own session and handles Google sign-in if needed. **Automatic Sign-In (Demo Apps)** controls the two disposable workspaces.
+Run `bun test integrations/agent-access-pilot` from the repository root
+for broker and launcher checks. Run the generated executable with
+`--verify-launches` to exercise manual and automatic fixture launches,
+existing sessions, and expiry. This mode uses disposable data.
