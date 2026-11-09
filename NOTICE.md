@@ -38,6 +38,11 @@ are recorded in `branding/desktop/MODIFICATIONS.md` and `docs/desktop.md`.
 No desktop binary is released by this source-preparation work. Preserve upstream
 and dependency notices and supply corresponding source when distributing binaries.
 
+The disposable agent-access pilot uses the unmodified Vaultwarden image, the
+official Bitwarden CLI and its GPLv3 SDK, and BetterWright 2.9.1 (MIT).
+These are runtime or package dependencies; the pilot does not vendor them.
+See the [pilot runbook](integrations/agent-access-pilot/README.md) for pins.
+
 The GPL and AGPL do not grant trademark rights. Bitwarden and Vaultwarden are
 used here to identify upstream projects. Vault naming/trademark availability
 has not been cleared. Do not imply upstream affiliation.

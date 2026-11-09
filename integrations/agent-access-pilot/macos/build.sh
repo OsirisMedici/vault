@@ -1,0 +1,20 @@
+#!/bin/bash
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/../../.." && pwd)"
+bun="$(command -v bun)"
+out="$repo/.cache/vault-launcher/Vault Launcher.app"
+mkdir -p "$out/Contents/MacOS"
+plist="$out/Contents/Info.plist"
+plutil -create xml1 "$plist"
+plutil -insert CFBundleIdentifier -string com.osirismedici.vault-launcher-pilot "$plist"
+plutil -insert CFBundleExecutable -string VaultLauncher "$plist"
+plutil -insert CFBundleName -string "Vault Launcher" "$plist"
+plutil -insert CFBundlePackageType -string APPL "$plist"
+plutil -insert CFBundleVersion -string 1 "$plist"
+plutil -insert LSUIElement -bool YES "$plist"
+plutil -insert VaultBunExecutable -string "$bun" "$plist"
+xcrun swiftc "$repo/integrations/agent-access-pilot/macos/Launcher.swift" \
+  -framework AppKit -framework WebKit -o "$out/Contents/MacOS/VaultLauncher"
+codesign --force --sign - "$out"
+codesign --verify --strict "$out"
+printf '%s\n' "$out"
