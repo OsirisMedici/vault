@@ -67,6 +67,10 @@ tests and pending release acceptance. This is separate from the deployed
 display-only overlay above. Use the OSS `npm run dist:oss:selfhost` target and
 audit the license coverage of any additional modules before enabling them.
 
+For the compact workspace web release, follow the [combined build and acceptance
+guide](docs/compact-web-release.md). It includes the filter and sidebar
+changes and the one-character web master-password minimum from the candidate.
+
 ## Host it
 
 Vault is a custom image of the same Vaultwarden server. It is not a migration

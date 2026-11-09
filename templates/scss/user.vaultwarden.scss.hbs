@@ -326,6 +326,20 @@ bit-nav-logo bit-nav-item a::before {
 }
 #bit-side-nav[style*='4.5rem'] bit-nav-logo bit-svg::before { display: none; }
 
+#bit-side-nav:has(.vault-workspace-footer-compact) bit-nav-logo bit-svg::before {
+  height: 1.625rem;
+  background: url('../images/vault-icon.svg') no-repeat center / contain;
+}
+
+.vault-workspace-filter-row .vault-collection-trigger[aria-pressed='true'],
+.vault-workspace-filter-row .vault-collection-trigger.vault-collection-active,
+.vault-workspace-rail-link.vault-workspace-rail-active,
+.vault-workspace-settings-button[aria-expanded='true'] {
+  background: #302841;
+  border-color: #8066ad;
+  color: #e5daf7;
+}
+
 /* Preserve information architecture and controls; only refine existing surfaces. */
 bit-landing-header header { border-bottom: 1px solid #29292e; }
 footer { color: #a4a4af; }
