@@ -59,11 +59,13 @@ assets. Use an empty cache and overlay directory for a new release.
 The script fails if the expected branding strings no longer match. It writes a
 new content-hashed main filename so existing browsers do not reuse old code.
 
-For deeper UI work, create a branch in `upstream/web`, apply
-`branding/web-source.patch`, follow its build prerequisites, and use its OSS
-`npm run dist:oss:selfhost` target. Audit the license coverage of any additional
-modules before enabling them. Keep authentication, key derivation, encryption,
-storage and synchronization changes separate from visual changes.
+For source changes, keep `upstream/web` pinned and clean and export an isolated
+candidate. `python3 scripts/prepare-web.py` prepares the current candidate with
+Vault branding and a one-character master-password minimum. See
+[docs/short-master-passwords.md](docs/short-master-passwords.md) for its scope,
+tests and pending release acceptance. This is separate from the deployed
+display-only overlay above. Use the OSS `npm run dist:oss:selfhost` target and
+audit the license coverage of any additional modules before enabling them.
 
 ## Host it
 

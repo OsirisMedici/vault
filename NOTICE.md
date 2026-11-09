@@ -25,6 +25,13 @@ Vaultwarden image. It changes only display-name strings, logo labels, static
 branding assets, index metadata and a translation-cache suffix. It adds CSS through Vaultwarden's supported
 `scss/user.vaultwarden.scss.hbs` hook. Existing upstream disclaimers remain.
 
+The separate web source candidate in `scripts/prepare-web.py` also applies
+`patches/web-short-master-passwords.patch`. It changes the shared creation and
+sign-in master-password minimums to one character and updates the organization
+policy editor tests. It retains strength warnings, explicit organization policy
+enforcement, cryptography and upstream notices. This candidate is not deployed
+by the display-only overlay build. See `docs/short-master-passwords.md`.
+
 The desktop candidate uses the GPL OSS target and the original macOS Touch ID
 and Keychain implementation. Vault's changes and pending signing/runtime checks
 are recorded in `branding/desktop/MODIFICATIONS.md` and `docs/desktop.md`.
