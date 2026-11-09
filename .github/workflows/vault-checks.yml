@@ -1,0 +1,39 @@
+name: Vault overlay smoke test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the branded image
+        run: |
+          mkdir -p .cache/web-vault
+          base_image=$(python3 -c 'import json; print(json.load(open("upstream.lock.json"))["baseImage"])')
+          asset_container=$(docker create "$base_image")
+          trap 'docker rm "$asset_container" >/dev/null' EXIT
+          docker cp "$asset_container:/web-vault/." .cache/web-vault/
+          python3 scripts/build-branding.py .cache/web-vault
+          docker build -t vault-local:overlay .
+      - name: Verify the running demo
+        run: |
+          docker run --rm --detach --name vault-smoke \
+            -p 127.0.0.1:8000:80 \
+            -e DOMAIN=http://127.0.0.1:8000 \
+            -e SIGNUPS_ALLOWED=false \
+            vault-local:overlay
+          trap 'docker stop vault-smoke >/dev/null' EXIT
+          curl --fail --silent --show-error --retry 20 --retry-connrefused \
+            --retry-delay 1 http://127.0.0.1:8000/alive
+          python3 scripts/verify-release.py http://127.0.0.1:8000
