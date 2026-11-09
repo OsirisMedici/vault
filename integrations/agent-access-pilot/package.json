@@ -1,0 +1,15 @@
+{
+  "name": "vault-agent-access-pilot",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "dependencies": {
+    "@bitwarden/sdk-internal": "0.2.0-main.1075",
+    "betterwright": "2.9.1"
+  },
+  "scripts": {
+    "pilot": "bun run pilot.ts",
+    "test": "bun test"
+  }
+}

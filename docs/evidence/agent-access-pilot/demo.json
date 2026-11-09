@@ -1,0 +1,278 @@
+{
+  "environment": {
+    "host": "macOS arm64",
+    "worker": "Linux arm64 in local Colima VM",
+    "workerImage": "python@sha256:1e1f6334529d1fb26a2ef619d7cffb30a7c7d7cc1cc7338ebee283a58d1aeaca",
+    "vaultImage": "vaultwarden/server:1.37.4@sha256:efb3cde962015fcc036b2ea625242248611943b27212ebf4392841fb30fad055",
+    "bun": "1.4.4",
+    "executor": "BetterWright 2.9.1"
+  },
+  "isolation": {
+    "uid": 65532,
+    "interfaces": [
+      "lo"
+    ],
+    "trusted_file_denied": true,
+    "host_env_absent": true,
+    "vault_session_absent": true,
+    "docker_cli_absent": true,
+    "docker_socket_denied": true,
+    "host_owner_denied": true,
+    "host_browser_denied": true,
+    "host_namespace_denied": true,
+    "root_escalation_denied": true,
+    "root_write_denied": true,
+    "capabilities_dropped": true,
+    "no_new_privileges": true
+  },
+  "accounts": {
+    "granted": "81cfb5c9-427d-4187-9f62-345819f8e320",
+    "unassigned": "3223a2c8-c56a-4534-b1b8-465e307ffce7",
+    "ownerItemsRemain": true
+  },
+  "initial": [
+    {
+      "status": "ok",
+      "requestId": "e2b36d46-62ff-4253-817b-d5cdf5d34fd3",
+      "accounts": [
+        {
+          "id": "81cfb5c9-427d-4187-9f62-345819f8e320",
+          "label": "Account A"
+        }
+      ]
+    },
+    {
+      "status": "denied",
+      "requestId": "8c70c896-fbbc-44a3-87f5-13acca1c7997"
+    },
+    {
+      "status": "denied",
+      "requestId": "1ea32916-83c9-447f-b277-1aee5b37b4e0"
+    },
+    {
+      "status": "denied",
+      "requestId": "9deb25bd-8b9c-4240-9ba8-40fe3de4fd89"
+    },
+    {
+      "status": "denied",
+      "requestId": "8ecfd85a-9b42-4d40-89e5-2264b378ef1a"
+    },
+    {
+      "status": "denied",
+      "requestId": "03eabced-d849-4e87-bc5d-4c44806cac54"
+    },
+    {
+      "status": "denied",
+      "requestId": "ecc6f9a9-a36d-4ee9-8f12-2cffbd3e15a6"
+    },
+    {
+      "status": "denied",
+      "requestId": "b53a8205-093c-4cd3-b74b-6c010dd9d881"
+    },
+    {
+      "status": "ok",
+      "requestId": "f58bb906-898c-4fbc-975c-06f03f6de048",
+      "proof": {
+        "signedOut": true,
+        "privateFill": true,
+        "identityVerified": true,
+        "records": 2
+      }
+    }
+  ],
+  "restarted": [
+    {
+      "status": "ok",
+      "requestId": "a19d220b-0673-4025-a6f9-726d893da67c",
+      "proof": {
+        "signedOut": true,
+        "privateFill": true,
+        "identityVerified": true,
+        "records": 2
+      }
+    }
+  ],
+  "inFlight": [
+    {
+      "status": "denied",
+      "requestId": "58f91f8d-59a1-40d6-a98b-119e7ea04eba"
+    }
+  ],
+  "existingIdentity": "karen@fixture.invalid",
+  "after": [
+    {
+      "status": "denied",
+      "requestId": "04292eb4-b56d-4813-a234-08e7734c78aa"
+    }
+  ],
+  "afterList": [
+    {
+      "status": "ok",
+      "requestId": "226fb197-7954-4dd9-8608-82f1b1016b03",
+      "accounts": []
+    }
+  ],
+  "audit": [
+    {
+      "requestId": "67cb6924-eaff-4e01-8c4d-844bf90768d6",
+      "at": "2026-11-09T00:53:08.385Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": null,
+      "grantId": null,
+      "action": "list",
+      "result": "ok"
+    },
+    {
+      "requestId": "42925377-f3be-4ffb-a5ba-ebf8eee72021",
+      "at": "2026-11-09T00:53:08.415Z",
+      "actor": "owner",
+      "agent": "karen-pilot",
+      "account": "81cfb5c9-427d-4187-9f62-345819f8e320",
+      "grantId": "f97b7e45-9bda-4add-8517-1dba176c56ae",
+      "action": "grant",
+      "result": "granted"
+    },
+    {
+      "requestId": "e2b36d46-62ff-4253-817b-d5cdf5d34fd3",
+      "at": "2026-11-09T00:53:08.563Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": null,
+      "grantId": null,
+      "action": "list",
+      "result": "ok"
+    },
+    {
+      "requestId": "8c70c896-fbbc-44a3-87f5-13acca1c7997",
+      "at": "2026-11-09T00:53:08.567Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "3223a2c8-c56a-4534-b1b8-465e307ffce7",
+      "grantId": null,
+      "action": "read",
+      "result": "denied"
+    },
+    {
+      "requestId": "1ea32916-83c9-447f-b277-1aee5b37b4e0",
+      "at": "2026-11-09T00:53:08.569Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "00000000-0000-0000-0000-000000000000",
+      "grantId": null,
+      "action": "read",
+      "result": "denied"
+    },
+    {
+      "requestId": "9deb25bd-8b9c-4240-9ba8-40fe3de4fd89",
+      "at": "2026-11-09T00:53:08.570Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "3223a2c8-c56a-4534-b1b8-465e307ffce7",
+      "grantId": null,
+      "action": "private_fill",
+      "result": "denied"
+    },
+    {
+      "requestId": "8ecfd85a-9b42-4d40-89e5-2264b378ef1a",
+      "at": "2026-11-09T00:53:08.571Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "81cfb5c9-427d-4187-9f62-345819f8e320",
+      "grantId": null,
+      "action": "invalid",
+      "result": "denied"
+    },
+    {
+      "requestId": "03eabced-d849-4e87-bc5d-4c44806cac54",
+      "at": "2026-11-09T00:53:08.572Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "3223a2c8-c56a-4534-b1b8-465e307ffce7",
+      "grantId": null,
+      "action": "invalid",
+      "result": "denied"
+    },
+    {
+      "requestId": "ecc6f9a9-a36d-4ee9-8f12-2cffbd3e15a6",
+      "at": "2026-11-09T00:53:08.574Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "81cfb5c9-427d-4187-9f62-345819f8e320",
+      "grantId": null,
+      "action": "owner_revoke",
+      "result": "denied"
+    },
+    {
+      "requestId": "b53a8205-093c-4cd3-b74b-6c010dd9d881",
+      "at": "2026-11-09T00:53:08.576Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": null,
+      "grantId": null,
+      "action": "browser_debug",
+      "result": "denied"
+    },
+    {
+      "requestId": "f58bb906-898c-4fbc-975c-06f03f6de048",
+      "at": "2026-11-09T00:53:18.397Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "81cfb5c9-427d-4187-9f62-345819f8e320",
+      "grantId": "f97b7e45-9bda-4add-8517-1dba176c56ae",
+      "action": "read",
+      "result": "ok"
+    },
+    {
+      "requestId": "a19d220b-0673-4025-a6f9-726d893da67c",
+      "at": "2026-11-09T00:53:27.041Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "81cfb5c9-427d-4187-9f62-345819f8e320",
+      "grantId": "f97b7e45-9bda-4add-8517-1dba176c56ae",
+      "action": "read",
+      "result": "ok"
+    },
+    {
+      "requestId": "a254de9d-80bc-4c84-bf20-431d2379beab",
+      "at": "2026-11-09T00:53:37.547Z",
+      "actor": "owner",
+      "agent": "karen-pilot",
+      "account": "81cfb5c9-427d-4187-9f62-345819f8e320",
+      "grantId": "f97b7e45-9bda-4add-8517-1dba176c56ae",
+      "action": "revoke",
+      "result": "revoked"
+    },
+    {
+      "requestId": "58f91f8d-59a1-40d6-a98b-119e7ea04eba",
+      "at": "2026-11-09T00:53:37.548Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "81cfb5c9-427d-4187-9f62-345819f8e320",
+      "grantId": "f97b7e45-9bda-4add-8517-1dba176c56ae",
+      "action": "read",
+      "result": "denied"
+    },
+    {
+      "requestId": "04292eb4-b56d-4813-a234-08e7734c78aa",
+      "at": "2026-11-09T00:53:38.006Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": "81cfb5c9-427d-4187-9f62-345819f8e320",
+      "grantId": "f97b7e45-9bda-4add-8517-1dba176c56ae",
+      "action": "read",
+      "result": "denied"
+    },
+    {
+      "requestId": "226fb197-7954-4dd9-8608-82f1b1016b03",
+      "at": "2026-11-09T00:53:38.198Z",
+      "actor": "karen-pilot",
+      "agent": "karen-pilot",
+      "account": null,
+      "grantId": null,
+      "action": "list",
+      "result": "ok"
+    }
+  ],
+  "credentialScan": "No generated passwords or CLI session key in the captured browser responses, worker results, audit, or this receipt."
+}

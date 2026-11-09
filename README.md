@@ -18,6 +18,10 @@ An isolated [Agent Vault evaluation](docs/agent-vault-evaluation-2026-10-22.md)
 tests API credential brokering with dummy data. It is a research and test
 artifact; no Agent Vault runtime integration is enabled.
 
+The [agent-access pilot](integrations/agent-access-pilot/README.md) is a local
+fixture for granting one isolated worker access to a single Vaultwarden login.
+See the [fixture evidence](docs/evidence/agent-access-pilot/README.md).
+
 ## Source
 
 ```sh

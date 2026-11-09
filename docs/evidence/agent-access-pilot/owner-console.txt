@@ -1,0 +1,130 @@
+Vault pilot owner console. Karen starts with no access.
+Commands: show, grant a|b, run a|b, revoke a|b, list, audit, exit
+{
+  "agent": {
+    "id": "karen-pilot",
+    "label": "Karen"
+  },
+  "accounts": [
+    {
+      "id": "88ef71cc-5ff5-4144-b7a4-e5533e5ebff8",
+      "label": "Account A",
+      "identity": "karen@fixture.invalid",
+      "origin": "http://127.0.0.1:58634",
+      "granted": false
+    },
+    {
+      "id": "0be6bd06-ae79-4a15-ac17-62eadbe7840d",
+      "label": "Account B",
+      "identity": "unassigned@fixture.invalid",
+      "origin": "http://127.0.0.1:58634",
+      "granted": false
+    }
+  ]
+}
+{
+  "status": "granted",
+  "requestId": "25f03e19-4a5c-4592-9ed5-9d19133a77f0"
+}
+[
+  {
+    "status": "ok",
+    "requestId": "0e08016c-a689-45a4-af0e-7f3017b9337a",
+    "accounts": [
+      {
+        "id": "88ef71cc-5ff5-4144-b7a4-e5533e5ebff8",
+        "label": "Account A"
+      }
+    ]
+  }
+]
+[
+  {
+    "status": "ok",
+    "requestId": "f38ad6a8-81d2-4699-b2aa-d0c54fe27672",
+    "proof": {
+      "signedOut": true,
+      "privateFill": true,
+      "identityVerified": true,
+      "records": 2
+    }
+  }
+]
+[
+  {
+    "status": "denied",
+    "requestId": "04f42f8b-ac79-4845-a522-77b1e1039e68"
+  }
+]
+{
+  "status": "revoked",
+  "requestId": "da63f387-be75-4577-a37f-3f5fdb09ef67"
+}
+[
+  {
+    "status": "denied",
+    "requestId": "ec1ef98b-d86c-4089-833c-98d6ba8a5cfe"
+  }
+]
+[
+  {
+    "requestId": "25f03e19-4a5c-4592-9ed5-9d19133a77f0",
+    "at": "2026-11-09T00:52:17.685Z",
+    "actor": "owner",
+    "agent": "karen-pilot",
+    "account": "88ef71cc-5ff5-4144-b7a4-e5533e5ebff8",
+    "grantId": "add4ac6d-95af-4a0c-ab5c-b3169147b345",
+    "action": "grant",
+    "result": "granted"
+  },
+  {
+    "requestId": "0e08016c-a689-45a4-af0e-7f3017b9337a",
+    "at": "2026-11-09T00:52:18.004Z",
+    "actor": "karen-pilot",
+    "agent": "karen-pilot",
+    "account": null,
+    "grantId": null,
+    "action": "list",
+    "result": "ok"
+  },
+  {
+    "requestId": "f38ad6a8-81d2-4699-b2aa-d0c54fe27672",
+    "at": "2026-11-09T00:52:27.454Z",
+    "actor": "karen-pilot",
+    "agent": "karen-pilot",
+    "account": "88ef71cc-5ff5-4144-b7a4-e5533e5ebff8",
+    "grantId": "add4ac6d-95af-4a0c-ab5c-b3169147b345",
+    "action": "read",
+    "result": "ok"
+  },
+  {
+    "requestId": "04f42f8b-ac79-4845-a522-77b1e1039e68",
+    "at": "2026-11-09T00:52:27.810Z",
+    "actor": "karen-pilot",
+    "agent": "karen-pilot",
+    "account": "0be6bd06-ae79-4a15-ac17-62eadbe7840d",
+    "grantId": null,
+    "action": "read",
+    "result": "denied"
+  },
+  {
+    "requestId": "da63f387-be75-4577-a37f-3f5fdb09ef67",
+    "at": "2026-11-09T00:52:27.834Z",
+    "actor": "owner",
+    "agent": "karen-pilot",
+    "account": "88ef71cc-5ff5-4144-b7a4-e5533e5ebff8",
+    "grantId": "add4ac6d-95af-4a0c-ab5c-b3169147b345",
+    "action": "revoke",
+    "result": "revoked"
+  },
+  {
+    "requestId": "ec1ef98b-d86c-4089-833c-98d6ba8a5cfe",
+    "at": "2026-11-09T00:52:28.027Z",
+    "actor": "karen-pilot",
+    "agent": "karen-pilot",
+    "account": "88ef71cc-5ff5-4144-b7a4-e5533e5ebff8",
+    "grantId": "add4ac6d-95af-4a0c-ab5c-b3169147b345",
+    "action": "read",
+    "result": "denied"
+  }
+]
