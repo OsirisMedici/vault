@@ -114,6 +114,10 @@ private final class Launcher: NSObject, NSApplicationDelegate {
     private let preferenceKey = "AutomaticSignIn"
     private var workspaces: [String: Workspace] = [:]
     private var origin: URL?
+    private var notionURL: URL?
+    private var launcherWindow: NSWindow?
+    private var panelToggle: NSButton?
+    private var panelAppButtons: [NSButton] = []
     private var automaticSignIn = false
     private var nextRequestId = 0
     private var reply: ((id: Int, handler: (Message?) -> Void))?
@@ -131,18 +135,96 @@ private final class Launcher: NSObject, NSApplicationDelegate {
         status.menu = menu
         menu.autoenablesItems = false
         automaticSignIn = !verify && UserDefaults.standard.bool(forKey: preferenceKey)
+        notionURL = loadNotionURL()
         updateMenu()
         startHelper()
+        if !verify && notionURL != nil { showLauncher() }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !verify && notionURL != nil { showLauncher() }
+        return false
+    }
+
+    @objc private func showLauncher() {
+        if launcherWindow == nil {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 350, height: 230),
+                                  styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            window.title = "Vault Launcher"
+            window.isReleasedWhenClosed = false
+            window.center()
+            let notion = NSButton(title: "Open Notion", target: self, action: #selector(openNotion))
+            let browserNote = NSTextField(labelWithString: "Notion opens in your default browser.")
+            let divider = NSBox()
+            divider.boxType = .separator
+            let toggle = NSButton(checkboxWithTitle: "Automatic Sign-In (Demo Apps)", target: self,
+                                  action: #selector(toggleSignIn))
+            panelToggle = toggle
+            panelAppButtons = apps.enumerated().map { index, app in
+                let button = NSButton(title: app.name, target: self, action: #selector(selectPanelApp(_:)))
+                button.tag = index
+                return button
+            }
+            let stack = NSStackView(views: [notion, browserNote, divider, toggle] + panelAppButtons)
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.spacing = 9
+            stack.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+            window.contentView = stack
+            launcherWindow = window
+        }
+        updateMenu()
+        launcherWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func selectPanelApp(_ sender: NSButton) {
+        guard apps.indices.contains(sender.tag) else { return }
+        open(apps[sender.tag].id)
+    }
+
+    private var checkoutRoot: URL {
+        Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    private func loadNotionURL() -> URL? {
+        let config = checkoutRoot.appendingPathComponent(".local/notion-launch-url")
+        guard let raw = try? String(contentsOf: config, encoding: .utf8),
+              let url = URL(string: raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              url.scheme == "https", url.host == "app.notion.com", url.port == nil,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
+              url.path.range(of: "^/p/[0-9a-f]{32}$", options: .regularExpression) != nil else { return nil }
+        return url
+    }
+
+    @objc private func openNotion() {
+        guard let notionURL, !stopping else { return }
+        if !NSWorkspace.shared.open(notionURL) {
+            notice("Could not open Notion", "Try opening Notion again from the Vault menu.")
+        }
     }
 
     private func updateMenu() {
         menu.removeAllItems()
+        if notionURL != nil {
+            let notion = menu.addItem(withTitle: "Open Notion", action: #selector(openNotion), keyEquivalent: "")
+            notion.target = self
+            notion.toolTip = "Opens the approved page in your browser. Notion handles Google sign-in."
+            notion.isEnabled = !stopping
+            let show = menu.addItem(withTitle: "Show Launcher", action: #selector(showLauncher), keyEquivalent: "")
+            show.target = self
+            show.isEnabled = !stopping
+            menu.addItem(.separator())
+        }
         let headline = helperFailed ? "Vault Launcher unavailable" :
             origin == nil ? "Preparing demo apps…" :
             reply != nil || loadingWindow ? "Checking sign-in…" : "Vault demo apps"
         menu.addItem(withTitle: headline, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
         let enabled = origin != nil && !helperFailed && !stopping && reply == nil && !loadingWindow
+        panelToggle?.state = automaticSignIn ? .on : .off
+        panelToggle?.isEnabled = enabled
+        panelAppButtons.forEach { $0.isEnabled = enabled }
         for app in apps {
             let item = menu.addItem(withTitle: app.name, action: #selector(selectApp(_:)), keyEquivalent: "")
             item.target = self
@@ -150,7 +232,7 @@ private final class Launcher: NSObject, NSApplicationDelegate {
             item.isEnabled = enabled
         }
         menu.addItem(.separator())
-        let toggle = menu.addItem(withTitle: "Automatic Sign-In", action: #selector(toggleSignIn), keyEquivalent: "")
+        let toggle = menu.addItem(withTitle: "Automatic Sign-In (Demo Apps)", action: #selector(toggleSignIn), keyEquivalent: "")
         toggle.target = self
         toggle.state = automaticSignIn ? .on : .off
         toggle.isEnabled = enabled
@@ -161,13 +243,12 @@ private final class Launcher: NSObject, NSApplicationDelegate {
 
     private func startHelper() {
         let bundle = Bundle.main
-        let root = bundle.bundleURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         guard let bun = bundle.object(forInfoDictionaryKey: "VaultBunExecutable") as? String else {
             helperUnavailable()
             return
         }
         helper.executableURL = URL(fileURLWithPath: bun)
-        helper.currentDirectoryURL = root.appendingPathComponent("integrations/agent-access-pilot")
+        helper.currentDirectoryURL = checkoutRoot.appendingPathComponent("integrations/agent-access-pilot")
         helper.arguments = ["run", "pilot.ts", "launcher"]
         helper.environment = [
             "HOME": NSHomeDirectory(), "TMPDIR": NSTemporaryDirectory(),
@@ -356,6 +437,14 @@ private final class Launcher: NSObject, NSApplicationDelegate {
     }
 
     private func runVerification() {
+        if notionURL != nil {
+            guard let entry = menu.item(withTitle: "Open Notion"),
+                  entry.isEnabled, entry.action == #selector(openNotion) else {
+                finishVerification(success: false)
+                return
+            }
+            print("Verified the approved Notion browser handoff is present in the Vault menu")
+        }
         let checks = [
             Check(command: "open", id: "design", status: "manual-required", reason: "signed-out"),
             Check(command: "confirm-demo", id: "design", status: "signed-in", source: "manual"),
