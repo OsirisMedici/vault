@@ -26,6 +26,25 @@ export function startFixture() {
         if (identity) reads++;
         return new Response(identity ? '2 sample records' : 'Signed out', { headers, status: identity ? 200 : 401 });
       }
+      if (req.method === 'GET' && url.pathname === '/app') {
+        const app = identity === 'design@fixture.invalid' ? 'Design Library' :
+          identity === 'notes@fixture.invalid' ? 'Project Notes' : null;
+        if (!app) return new Response('Sign-in required', { headers, status: 401 });
+        const content = app === 'Design Library' ? 'Brand assets and shared components.' : 'Meeting notes and project decisions.';
+        return new Response(`<!doctype html><meta charset="utf-8"><title>${app}</title>
+          <style>
+          :root { color-scheme: light dark; font: 16px -apple-system, system-ui; }
+          body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+          main { width: min(75%, 490px); padding: 36px; border: 1px solid GrayText; border-radius: 18px; }
+          small { font-weight: 650; color: GrayText; } h1 { margin: 12px 0; font-size: 36px; }
+          p { line-height: 1.55; } #identity { font-weight: 600; }
+          </style>
+          <main><small>VAULT · DEMO WORKSPACE</small><h1>${app}</h1><p>${content}</p>
+          <p>Signed in as <span id="identity">${identity}</span></p></main>`, {
+          headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8',
+            'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'" },
+        });
+      }
       if (req.method === 'GET' && url.pathname === '/login')
         return new Response(page, { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8' } });
       if (req.method === 'POST' && url.pathname === '/login' && req.headers.get('origin') === server.url.origin) {

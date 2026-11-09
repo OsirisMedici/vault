@@ -33,3 +33,18 @@ Vaultwarden and the fixture bind to temporary loopback ports. CLI trust uses a t
 The pilot has no real providers, MFA, installed T3 connector, or distributed workers. It does not provision a long-running vault or claim support on a standalone Linux host. Before adding any real credential, re-evaluate those boundaries and obtain separate provider consent.
 
 References: [Vaultwarden pin](../../upstream.lock.json), [Bitwarden CLI](https://bitwarden.com/help/cli/), [BetterWright 2.9.1 credentials](https://github.com/BetterWright/betterwright/blob/7aee003e7b627e292f852963b4ae40b569f41e21/docs/credentials.md), [Docker network isolation](https://docs.docker.com/engine/network/drivers/none/).
+
+## Vault Launcher on the Mac
+
+The reference is [Matt Davidson’s WorkOS Passport demo at 2:57](https://www.youtube.com/watch?v=KWqIznYPcg0&t=177s). The pilot adds a Vault menu next to the other macOS status items. It prepares two demo app sessions when opened. Once the menu says both apps are signed in, selecting Design Library or Project Notes opens the workspace with the verified account.
+
+From the repository root, with the prerequisites above and the macOS Command Line Tools:
+
+```sh
+bash integrations/agent-access-pilot/macos/build.sh
+open ".cache/vault-launcher/Vault Launcher.app"
+```
+
+Use **Quit Vault Launcher** in the Vault menu to close both demo sessions and stop the disposable vault. The build lives under this checkout’s ignored `.cache` directory. It is a local build with an ad hoc signature and a separate bundle ID.
+
+The trusted helper gets each synthetic login from disposable Vaultwarden, signs in to the exact loopback fixture, and verifies the session’s identity. Each embedded window uses a separate memory-only WebKit data store and displays the workspace only after it verifies the same identity. The native process receives the synthetic session cookie through a private pipe. Karen continues to use the separate grant-controlled pilot. Production provider enrollment, sign-in policy, and session refresh are future work.

@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { agent, openBroker, type Account } from './broker.ts';
 import { createExecutor } from './browser.ts';
+import { serveLauncher } from './launcher.ts';
 import { startFixture } from './fixture.ts';
 import { openVault, randomSecret, vaultImage } from './vault.ts';
 import { isolationProof, runWorker, workerImage } from './worker.ts';
@@ -15,7 +16,7 @@ const chrome = process.env.PILOT_CHROME_FOR_TESTING ?? join(homedir(), '.agent-b
   'chrome-152.0.7977.42', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing');
 const mode = Bun.argv[2] ?? 'demo';
 if (process.platform !== 'darwin' || process.arch !== 'arm64') throw new Error('Mac arm64 pilot only');
-if (!['probe', 'demo', 'console'].includes(mode)) throw new Error('Use probe, demo or console');
+if (!['probe', 'demo', 'console', 'launcher'].includes(mode)) throw new Error('Use probe, demo, console or launcher');
 process.umask(0o077);
 const root = mkdtempSync(join(tmpdir(), 'vault-pilot-'));
 const secretValues: string[] = [];
@@ -53,6 +54,12 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => 
 });
 
 async function main() {
+  if (mode === 'launcher') {
+    fixture = startFixture();
+    vault = await openVault(root, protect);
+    await serveLauncher(fixture, vault, protect);
+    return;
+  }
   const isolation = await isolationProof(join(root, 'trusted-canary'));
   if (mode === 'probe') return report({ workerImage, isolation });
   console.error('Karen isolation verified. Starting disposable Vaultwarden.');
