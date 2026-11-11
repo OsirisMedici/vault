@@ -1,0 +1,62 @@
+#!/bin/bash
+# Prepared Vault web deployment. No account, volume, proxy, or backend migration.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=/root
+unset DOCKER_CONTEXT DOCKER_CONFIG COMPOSE_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES
+export DOCKER_HOST=unix:///var/run/docker.sock
+umask 077
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Run from the VPS administrator/root terminal."
+  exit 1
+fi
+
+exec 9>/opt/vaultwarden/.password-deployment.lock
+flock -n 9
+
+vault_expected='@EXPECTED_IMAGE@'
+vault_expected_id='@EXPECTED_IMAGE_ID@'
+vault_candidate='@IMAGE@'
+
+# Refuse a stale release or unexpected running service.
+test "$(docker image inspect --format '{{.Id}}' "$vault_expected")" = "$vault_expected_id"
+test "$(docker inspect --format '{{.Image}}' osiris-vaultwarden)" = "$vault_expected_id"
+test "$(docker inspect --format '{{.State.Health.Status}}' osiris-vaultwarden)" = healthy
+
+vault_stage=$(mktemp -d /opt/vault-password-@RELEASE@.XXXXXX)
+install -o root -g root -m 0600 '@ARCHIVE@' "$vault_stage/release.tar.gz"
+printf '%s  %s\n' '@ARCHIVE_SHA256@' "$vault_stage/release.tar.gz" | sha256sum --check -
+mkdir "$vault_stage/context"
+tar --extract --gzip --no-same-owner --no-same-permissions \
+  --file "$vault_stage/release.tar.gz" --directory "$vault_stage/context"
+
+# This context contains only compiled public web files, notices and a COPY-only
+# Dockerfile. Preserve the accepted server and agent-access image layers.
+docker build --network=none --pull=false \
+  --tag "$vault_candidate" "$vault_stage/context"
+
+# The established encrypted snapshot service can briefly pause Vault.
+touch "$vault_stage/backup-started"
+systemctl start vaultwarden-backup.service
+vault_backup=$(find /opt/vaultwarden/backups -maxdepth 1 -type f \
+  -name 'vaultwarden-*.tar.age' -newer "$vault_stage/backup-started" \
+  -printf '%f\n' | LC_ALL=C sort | tail -n 1)
+test -n "$vault_backup"
+case "$vault_backup" in
+  vaultwarden-*.tar.age) ;;
+  *) echo "Unexpected backup name; stopping before activation."; exit 1 ;;
+esac
+(
+  cd /opt/vaultwarden/backups
+  sha256sum --check "$vault_backup.sha256"
+)
+
+# Existing root-owned guard validates base layers, server settings, exact current
+# image and image-only Compose changes. It rolls back on failed health acceptance.
+/usr/local/sbin/vault-ops activate \
+  "$vault_candidate" "$vault_expected" "$vault_expected_id" \
+  "/opt/vaultwarden/backups/$vault_backup"
+
+/usr/local/sbin/vault-ops status
+printf '%s\n' 'Activation completed. Public checks and private owner acceptance follow.'
