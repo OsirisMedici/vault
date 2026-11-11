@@ -31,6 +31,12 @@ are recorded in `branding/desktop/MODIFICATIONS.md` and `docs/desktop.md`.
 No desktop binary is released by this source-preparation work. Preserve upstream
 and dependency notices and supply corresponding source when distributing binaries.
 
+A separate web source candidate changes password-choice validation and master-
+password policy evaluation, with tests and a Bun lock migration. Its patch and
+limitations are documented in `docs/master-password-length.md`. This candidate
+does not alter server or encryption implementations and is not part of the
+existing display-only release image. Upstream licenses and notices remain.
+
 The GPL and AGPL do not grant trademark rights. Bitwarden and Vaultwarden are
 used here to identify upstream projects. Vault naming/trademark availability
 has not been cleared. Do not imply upstream affiliation.

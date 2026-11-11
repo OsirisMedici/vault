@@ -86,6 +86,14 @@ proxy gates, add `--expect-proxy-gates`.
 This repository deliberately contains no runtime environment, private account
 directory, credentials, vault database, exports or backups.
 
+## Master-password source candidate
+
+An isolated web source candidate allows newly chosen master passwords of 1–12
+characters, overrides organization master-password requirements at Osiris's
+request, and keeps full existing passwords at login and unlock. Very short
+passwords weaken protection against offline guessing. No release is deployed.
+See [the design, security consequences and reproducible tests](docs/master-password-length.md).
+
 ## License
 
 Vault's original files are GPL-3.0-only. The server is AGPLv3 and the client
