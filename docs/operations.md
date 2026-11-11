@@ -13,6 +13,10 @@ The web theme intentionally renders charcoal for both existing upstream theme
 choices. Its original information architecture, form controls, keyboard focus,
 warnings, error states and authorization remain. CSS is never an access policy.
 
+The image sets `CLIENT_SUPPRESS_ONBOARDING=true` so members can go to the
+vault after signing in without the extension setup prompt. Confirm
+`settings.suppressOnboardingInterstitials` in `/api/config` after a release.
+
 ## Before a release
 
 1. Record the running image, exact source revision and current image ID.
@@ -41,6 +45,25 @@ warnings, error states and authorization remain. CSS is never an access policy.
 - Verify a compatible desktop client still syncs against the same server.
   Team collections, item edits, attachments and a second Mac require their own
   acceptance when used. Do not infer those checks from a login-page screenshot.
+
+## Onboard team members
+
+Keep public registration closed and create named invitations. With SMTP
+disabled, ask invitees to use the sign-up page on your own Vault server and
+register with the invited email. Once an invitation shows **Accepted**,
+verify the member's fingerprint phrase through a trusted channel and confirm
+membership in **Admin Console → Members**.
+
+When a reverse proxy limits registration, test a named invite and an uninvited
+address separately. The current web client submits
+`/identity/accounts/register/send-verification-email` and
+`/identity/accounts/register/finish`. Vaultwarden must receive those requests
+to enforce its own invite and token checks. Keep `SIGNUPS_ALLOWED=false` and
+the signup domain whitelist empty for invite-only registration.
+
+From the member's own session, verify they can find an approved shared login
+and that a private item outside their collections is absent. Read back the
+saved role and collection permissions in the Admin Console.
 
 ## Rollback
 

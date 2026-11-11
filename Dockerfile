@@ -4,6 +4,7 @@ COPY dist/overlay/ /web-vault/
 COPY templates/ /vault-templates/
 COPY LICENSE NOTICE.md /usr/share/doc/vault/
 ENV TEMPLATES_FOLDER=/vault-templates
+ENV CLIENT_SUPPRESS_ONBOARDING=true
 LABEL org.opencontainers.image.title="Vault" \
       org.opencontainers.image.description="Charcoal web branding for Vaultwarden" \
       org.opencontainers.image.source="https://github.com/OsirisMedici/vault" \
