@@ -1,0 +1,24 @@
+{
+  "bunVersion": "1.4.4",
+  "sourceCommit": "d2a095eb800fe80a9bc524579b974796eae51994",
+  "webVersion": "2026.7.0",
+  "sourceSha256": {
+    "package.json": "5f516188a0ffd76365f1f9f81ee2a852d2c43a6ee8f44d3688a1719ed86453d2",
+    "package-lock.json": "67adb663afb44f44688f1926a32847b8a960ab8cf334c9a55176de0ffb4e7273",
+    "apps/web/webpack.base.js": "710eab517fd632d51b72d1104481fe43ec2f86c2988c997f9c4251ac25e2833c"
+  },
+  "bunLockSha256": "f6aff4c2542eebd84bd95860159c8818c2a5eafc8fceeb6551c7215d98e04f12",
+  "criticalVersions": {
+    "@angular/compiler": "21.2.17",
+    "@angular/compiler-cli": "21.2.17",
+    "typescript": "5.9.3",
+    "webpack": "5.106.2",
+    "webpack-cli": "7.0.2",
+    "@nx/webpack": "22.6.5",
+    "@bitwarden/sdk-internal": "0.2.0-main.883",
+    "@bitwarden/commercial-sdk-internal": "0.2.0-main.883"
+  },
+  "retainedRegistryRecords": 2439,
+  "omittedRegistryRecords": 99,
+  "omittedRegistrySha256": "5e883d45dfdece68ec4057a47482f1768526065b976628f168b3a9ac6f017769"
+}

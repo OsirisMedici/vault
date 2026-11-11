@@ -1,0 +1,296 @@
+// Vault-owned evaluation fixture. Copied only into a disposable upstream candidate.
+package server
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/json"
+	"golang.org/x/net/dns/dnsmessage"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/Infisical/agent-vault/internal/ca"
+	"github.com/Infisical/agent-vault/internal/mitm"
+	"github.com/Infisical/agent-vault/internal/store"
+)
+
+type vaultEvaluationLog struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *vaultEvaluationLog) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+func (b *vaultEvaluationLog) snapshot() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]byte(nil), b.buffer.Bytes()...)
+}
+
+func TestVaultEvaluation(t *testing.T) {
+	// Only this process may reach the loopback mock through the network guard.
+	t.Setenv("AGENT_VAULT_ALLOW_PRIVATE_RANGES", "false")
+	t.Setenv("AGENT_VAULT_NETWORK_ALLOWLIST", "127.0.0.1/32")
+	t.Setenv("AGENT_VAULT_TELEMETRY", "false")
+	// Resolve a test-only hostname inside this process. No host-file or DNS changes.
+	dns, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dnsDone := make(chan struct{})
+	go func() {
+		defer close(dnsDone)
+		packet := make([]byte, 4096)
+		for {
+			n, peer, err := dns.ReadFrom(packet)
+			if err != nil {
+				return
+			}
+			var question dnsmessage.Message
+			if question.Unpack(packet[:n]) != nil {
+				continue
+			}
+			answer := dnsmessage.Message{Header: dnsmessage.Header{ID: question.ID, Response: true, RecursionAvailable: true}, Questions: question.Questions}
+			for _, q := range question.Questions {
+				if q.Name.String() == "mock.vault-eval.test." && q.Type == dnsmessage.TypeA {
+					answer.Answers = append(answer.Answers, dnsmessage.Resource{Header: dnsmessage.ResourceHeader{Name: q.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET, TTL: 1}, Body: &dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}}})
+				}
+			}
+			wire, err := answer.Pack()
+			if err == nil {
+				_, _ = dns.WriteTo(wire, peer)
+			}
+		}
+	}()
+	originalResolver := net.DefaultResolver
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "udp", dns.LocalAddr().String())
+	}}
+	t.Cleanup(func() { net.DefaultResolver = originalResolver; _ = dns.Close(); <-dnsDone })
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "trial.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	var logs vaultEvaluationLog
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	srv := New("127.0.0.1:0", db, key, nil, false, "http://127.0.0.1", logger)
+	control := httptest.NewServer(srv.httpServer.Handler)
+	t.Cleanup(control.Close)
+	call := func(method, path, token string, payload any, want int) []byte {
+		t.Helper()
+		var data []byte
+		if payload != nil {
+			data, err = json.Marshal(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		req, err := http.NewRequest(method, control.URL+path, bytes.NewReader(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		resp, err := control.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Never include raw response bodies, tokens or credential values in failures.
+		if resp.StatusCode != want {
+			t.Fatalf("%s %s status %d, want %d", method, path, resp.StatusCode, want)
+		}
+		return body
+	}
+	decode := func(body []byte) map[string]any {
+		t.Helper()
+		var out map[string]any
+		if err := json.Unmarshal(body, &out); err != nil {
+			t.Fatal("invalid JSON response")
+		}
+		return out
+	}
+	owner := decode(call("POST", "/v1/auth/register", "", map[string]any{"email": "owner@vault-eval.invalid", "password": "Dummy-only-password-2026"}, 201))["token"].(string)
+	call("POST", "/v1/vaults", owner, map[string]any{"name": "trial"}, 201)
+	call("POST", "/v1/vaults", owner, map[string]any{"name": "other"}, 201)
+	const dummy = "vault-evaluation-dummy-key-never-a-real-credential"
+	call("POST", "/v1/credentials", owner, map[string]any{"vault": "trial", "credentials": map[string]string{"TEST_API_KEY": dummy}}, 200)
+	var calls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.Header.Get("Proxy-Authorization") != "" {
+			t.Error("broker token reached upstream")
+		}
+		if strings.HasPrefix(r.URL.Path, "/allowed/") && r.Header.Get("Authorization") != "Bearer "+dummy {
+			t.Error("credential was not injected")
+		}
+		if r.URL.Path == "/allowed/echo" {
+			_, _ = io.WriteString(w, r.Header.Get("Authorization"))
+			return
+		}
+		_, _ = io.WriteString(w, "mock-ok")
+	}))
+	t.Cleanup(upstream.Close)
+	mockURL := strings.Replace(upstream.URL, "127.0.0.1", "mock.vault-eval.test", 1)
+	authority := strings.TrimPrefix(mockURL, "http://")
+	call("POST", "/v1/vaults/trial/services", owner, map[string]any{"services": []any{map[string]any{"name": "mock-api", "host": authority + "/allowed/*", "auth": map[string]string{"type": "bearer", "token": "TEST_API_KEY"}}}}, 200)
+	scoped := decode(call("POST", "/v1/sessions", owner, map[string]any{"vault": "trial", "vault_role": "proxy", "ttl_seconds": 300, "label": "vault-evaluation"}, 200))
+	token := scoped["token"].(string)
+	if scoped["expires_at"] == "" {
+		t.Fatal("missing token expiry")
+	}
+	root, err := ca.New(key, ca.Options{Dir: filepath.Join(dir, "ca")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := mitm.New("127.0.0.1:0", mitm.Options{CA: root, Sessions: srv.SessionResolver(), Credentials: srv.CredentialProvider(), BaseURL: control.URL, Logger: logger})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- proxy.Serve(listener) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := proxy.Shutdown(ctx); err != nil {
+			t.Error("proxy shutdown failed")
+		}
+		select {
+		case <-served:
+		case <-ctx.Done():
+			t.Error("proxy listener remained alive")
+		}
+	})
+	proxyURL := &url.URL{Scheme: "http", Host: listener.Addr().String(), User: url.UserPassword(token, "trial")}
+	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+	t.Cleanup(transport.CloseIdleConnections)
+	request := func(method, path string, want int) []byte {
+		t.Helper()
+		req, _ := http.NewRequest(method, mockURL+path, nil)
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal("proxy request failed:", err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != want {
+			t.Fatalf("proxy %s %s status %d, want %d", method, path, resp.StatusCode, want)
+		}
+		return body
+	}
+	t.Run("credential_injection", func(t *testing.T) {
+		if string(request("GET", "/allowed/read", 200)) != "mock-ok" {
+			t.Fatal("unexpected mock result")
+		}
+	})
+	t.Run("default_unmatched_requests_pass_through", func(t *testing.T) {
+		before := calls.Load()
+		request("GET", "/outside", 200)
+		if calls.Load() != before+1 {
+			t.Fatal("unmatched request did not reach mock")
+		}
+	})
+	call("PATCH", "/v1/vaults/trial/settings", owner, map[string]string{"unmatched_host_policy": "deny"}, 200)
+	t.Run("explicit_deny_blocks_unmatched_path", func(t *testing.T) {
+		before := calls.Load()
+		request("GET", "/outside", 403)
+		if calls.Load() != before {
+			t.Fatal("denied request reached upstream")
+		}
+	})
+	t.Run("proxy_role_cannot_reveal_or_administer", func(t *testing.T) {
+		call("GET", "/v1/credentials?vault=trial&reveal=true", token, nil, 403)
+		call("POST", "/v1/credentials", token, map[string]any{"vault": "trial", "credentials": map[string]string{"TEST_API_KEY": "replacement"}}, 403)
+		call("POST", "/v1/sessions", token, map[string]string{"vault": "trial"}, 403)
+		call("PATCH", "/v1/vaults/trial/settings", token, map[string]string{"unmatched_host_policy": "passthrough"}, 403)
+	})
+	t.Run("cross_vault_access_denied", func(t *testing.T) {
+		call("GET", "/v1/credentials?vault=other", token, nil, 403)
+	})
+	t.Run("discovery_exposes_names_without_values", func(t *testing.T) {
+		body := call("GET", "/discover", token, nil, 200)
+		if bytes.Contains(body, []byte(dummy)) || !bytes.Contains(body, []byte("TEST_API_KEY")) {
+			t.Fatal("discovery boundary failed")
+		}
+	})
+	t.Run("stored_credential_is_ciphertext", func(t *testing.T) {
+		vault, err := db.GetVault(context.Background(), "trial")
+		if err != nil {
+			t.Fatal(err)
+		}
+		cred, err := db.GetCredential(context.Background(), vault.ID, "TEST_API_KEY")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := json.Marshal(cred)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(body, []byte(dummy)) {
+			t.Fatal("plaintext found in stored credential")
+		}
+	})
+	t.Run("method_is_not_an_action_permission", func(t *testing.T) {
+		request("POST", "/allowed/write", 200)
+	})
+	t.Run("echoing_upstream_can_return_injected_secret", func(t *testing.T) {
+		if !bytes.Contains(request("GET", "/allowed/echo", 200), []byte(dummy)) {
+			t.Fatal("echo behavior changed; review limitation")
+		}
+	})
+	t.Run("structured_logs_omit_dummy_credential", func(t *testing.T) {
+		if bytes.Contains(logs.snapshot(), []byte(dummy)) || bytes.Contains(logs.snapshot(), []byte(token)) {
+			t.Fatal("credential or token in structured logs")
+		}
+	})
+	t.Run("revocation_stops_proxy_use", func(t *testing.T) {
+		sessions := decode(call("GET", "/v1/sessions?vault=trial", owner, nil, 200))["sessions"].([]any)
+		var id string
+		for _, row := range sessions {
+			item := row.(map[string]any)
+			if item["label"] == "vault-evaluation" {
+				id = item["id"].(string)
+			}
+		}
+		if id == "" {
+			t.Fatal("scoped token not listed")
+		}
+		call("DELETE", "/v1/sessions/"+id+"?vault=trial", owner, nil, 200)
+		before := calls.Load()
+		request("GET", "/allowed/read", 407)
+		if calls.Load() != before {
+			t.Fatal("revoked token reached upstream")
+		}
+	})
+}

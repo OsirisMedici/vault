@@ -1,0 +1,191 @@
+--- a/libs/vault/src/services/copy-cipher-field.service.ts
++++ b/libs/vault/src/services/copy-cipher-field.service.ts
+@@ -23,6 +23,7 @@
+ export type CopyAction =
+   | "username"
+   | "password"
++  | "loginCredentials"
+   | "totp"
+   | "cardNumber"
+   | "securityCode"
+@@ -80,6 +81,11 @@
+     protected: true,
+     event: EventType.Cipher_ClientCopiedPassword,
+   },
++  loginCredentials: {
++    typeI18nKey: "loginCredentials",
++    protected: true,
++    event: EventType.Cipher_ClientCopiedPassword,
++  },
+   totp: { typeI18nKey: "verificationCodeTotp", protected: true },
+   cardNumber: { typeI18nKey: "number", protected: true },
+   securityCode: {
+@@ -166,9 +172,16 @@
+     cipher: CipherViewLike,
+     skipReprompt: boolean = false,
+   ): Promise<boolean> {
++    if (
++      actionType === "loginCredentials" &&
++      (!cipher.viewPassword || !valueToCopy || !CipherViewLikeUtils.getLogin(cipher))
++    ) {
++      return false;
++    }
++
+     const action = CopyActions[actionType];
+     if (
+-      !skipReprompt &&
++      (!skipReprompt || actionType === "loginCredentials") &&
+       cipher.reprompt !== CipherRepromptType.None &&
+       action.protected &&
+       !(await this.passwordRepromptService.showPasswordPrompt())
+@@ -191,7 +204,15 @@
+       valueToCopy = totpResponse.code;
+     }
+ 
+-    this.platformUtilsService.copyToClipboard(valueToCopy);
++    const copied = this.platformUtilsService.copyToClipboard(valueToCopy);
++    if (actionType === "loginCredentials" && copied === false) {
++      this.toastService.showToast({
++        variant: "error",
++        message: this.i18nService.t("copyLoginCredentialsFailed"),
++        title: "",
++      });
++      return false;
++    }
+     this.toastService.showToast({
+       variant: "success",
+       message: this.i18nService.t("valueCopied", this.i18nService.t(action.typeI18nKey)),
+--- a/libs/vault/src/components/copy-cipher-field.directive.ts
++++ b/libs/vault/src/components/copy-cipher-field.directive.ts
+@@ -95,11 +95,23 @@
+ 
+   /** Returns `true` when the cipher has the associated value as populated. */
+   private hasValueToCopy() {
++    if (this.action === "loginCredentials") {
++      return (
++        this.cipher.viewPassword &&
++        CipherViewLikeUtils.getLogin(this.cipher) != null &&
++        CipherViewLikeUtils.hasCopyableValue(this.cipher, "username") &&
++        CipherViewLikeUtils.hasCopyableValue(this.cipher, "password")
++      );
++    }
+     return CipherViewLikeUtils.hasCopyableValue(this.cipher, this.action);
+   }
+ 
+   /** Returns the value of the cipher to be copied. */
+   private async getValueToCopy() {
++    if (this.action === "loginCredentials" && !this.hasValueToCopy()) {
++      return;
++    }
++
+     let _cipher: CipherView;
+ 
+     if (CipherViewLikeUtils.isCipherListView(this.cipher)) {
+@@ -121,6 +133,12 @@
+         return _cipher.login?.username || _cipher.identity?.username;
+       case "password":
+         return _cipher.login?.password;
++      case "loginCredentials": {
++        const login = _cipher.login;
++        return _cipher.viewPassword && login?.username && login.password
++          ? [login.username, login.password].join("\n")
++          : undefined;
++      }
+       case "totp":
+         return _cipher.login?.totp;
+       case "cardNumber":
+--- a/apps/web/src/app/vault/components/vault-items/vault-cipher-row.component.html
++++ b/apps/web/src/app/vault/components/vault-items/vault-cipher-row.component.html
+@@ -154,6 +154,12 @@
+         label="{{ 'options' | i18n }}"
+       ></button>
+       <bit-menu #cipherOptions>
++        @if (isLoginCipher && cipher.viewPassword) {
++          <button type="button" bitMenuItem appCopyField="loginCredentials" [cipher]="cipher">
++            <i class="bwi bwi-fw bwi-clone" aria-hidden="true"></i>
++            {{ "copyLoginCredentials" | i18n }}
++          </button>
++        }
+         @if (!(showCopyAndLaunchActions$ | async)) {
+           @if (isLoginCipher) {
+             <button type="button" bitMenuItem appCopyField="username" [cipher]="cipher">
+--- a/apps/web/src/locales/en/messages.json
++++ b/apps/web/src/locales/en/messages.json
+@@ -1466,6 +1466,13 @@
+   "copyPassword": {
+     "message": "Copy password",
+     "description": "Copy password to clipboard"
++  },
++  "copyLoginCredentials": {
++    "message": "Copy username and password",
++    "description": "Copy both fields of the selected login to the clipboard"
++  },
++  "copyLoginCredentialsFailed": {
++    "message": "Could not copy username and password"
+   },
+   "copyPassphrase": {
+     "message": "Copy passphrase",
+--- a/libs/vault/src/services/copy-cipher-field.service.spec.ts
++++ b/libs/vault/src/services/copy-cipher-field.service.spec.ts
+@@ -87,6 +87,61 @@
+       });
+       expect(i18nService.t).toHaveBeenCalledWith("username");
+       expect(i18nService.t).toHaveBeenCalledWith("valueCopied", "Username");
++    });
++
++    describe("copying both login fields", () => {
++      beforeEach(() => {
++        cipher = new CipherView();
++        actionType = "loginCredentials";
++        cipher.type = CipherType.Login;
++        cipher.login = new LoginView();
++        cipher.viewPassword = true;
++        cipher.reprompt = CipherRepromptType.Password;
++        valueToCopy = "fixture-user\nfixture-password";
++      });
++
++      it("copies both fields after the required prompt and records a password copy", async () => {
++        passwordRepromptService.showPasswordPrompt.mockResolvedValue(true);
++
++        await expect(service.copy(valueToCopy, actionType, cipher)).resolves.toBe(true);
++
++        expect(passwordRepromptService.showPasswordPrompt).toHaveBeenCalledTimes(1);
++        expect(platformUtilsService.copyToClipboard).toHaveBeenCalledWith(valueToCopy);
++        expect(eventCollectionService.collect).toHaveBeenCalledWith(
++          EventType.Cipher_ClientCopiedPassword,
++          undefined,
++          false,
++          undefined,
++        );
++      });
++
++      it("does not copy when the collection hides passwords", async () => {
++        cipher.viewPassword = false;
++
++        await expect(service.copy(valueToCopy, actionType, cipher)).resolves.toBe(false);
++
++        expect(platformUtilsService.copyToClipboard).not.toHaveBeenCalled();
++      });
++
++      it("does not copy when the required prompt is declined", async () => {
++        passwordRepromptService.showPasswordPrompt.mockResolvedValue(false);
++
++        await expect(service.copy(valueToCopy, actionType, cipher, true)).resolves.toBe(false);
++
++        expect(platformUtilsService.copyToClipboard).not.toHaveBeenCalled();
++      });
++
++      it("does not report a copy if the browser rejects the clipboard write", async () => {
++        passwordRepromptService.showPasswordPrompt.mockResolvedValue(true);
++        platformUtilsService.copyToClipboard.mockReturnValue(false);
++
++        await expect(service.copy(valueToCopy, actionType, cipher)).resolves.toBe(false);
++
++        expect(toastService.showToast).toHaveBeenCalledWith(
++          expect.objectContaining({ variant: "error" }),
++        );
++        expect(eventCollectionService.collect).not.toHaveBeenCalled();
++      });
+     });
+ 
+     describe("password reprompt", () => {

@@ -1,0 +1,18 @@
+Vault password discovery web release
+Upstream web source: https://github.com/vaultwarden/vw_web_builds/tree/d2a095eb800fe80a9bc524579b974796eae51994
+Vault build source: https://github.com/OsirisMedici/vault/tree/f561d1862dc95d86689585f080acedf12e6fc3a7
+The archive includes the additional password discovery patch. The source links supply the exact public upstream and Vault build source including the existing branding and agent web client patches.
+Use the pinned Bun 1.4.4 and compiler Node 26.12.0. In the Vault source checkout, prepare the candidate with scripts/prepare-agent-web-tooling.py. Apply the included patch to the prepared candidate, install the frozen Bun dependencies with lifecycle scripts disabled, and compile using the existing OSS build runner. On Linux use --backend=copyfile for the frozen install so the source verifier can reject shared hardlinks. Run scripts/prepare-agent-web-release.py on the output.
+See LICENSE and NOTICE.md for attribution. The Vaultwarden server binary is unchanged.
+
+For the Vault copy-login release, apply web-copy-login.patch after
+web-password-discovery.patch before compiling. The extra patch changes the
+client's login copy controls. It does not change the server binary.
+
+Apply web-mac-menu-copy.patch after web-copy-login.patch. The Mac launcher
+uses this bridge to copy a saved login from the active, unlocked web client.
+
+Apply web-collections-toolbar.patch after web-mac-menu-copy.patch.
+The Collections toolbar reuses the Vault filter and samples the spring from
+Cult UI Toolbar Expandable (https://www.cult-ui.com/docs/components/toolbar-expandable).
+It is implemented in Angular and CSS.

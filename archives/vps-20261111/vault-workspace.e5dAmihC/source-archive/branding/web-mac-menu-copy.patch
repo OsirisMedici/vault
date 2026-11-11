@@ -1,0 +1,288 @@
+--- a/apps/web/src/app/app.component.ts
++++ b/apps/web/src/app/app.component.ts
+@@ -1,6 +1,6 @@
+ // FIXME: Update this file to be type safe and remove this and next line
+ // @ts-strict-ignore
+-import { Component, DestroyRef, NgZone, OnDestroy, OnInit } from "@angular/core";
++import { Component, DestroyRef, NgZone, OnDestroy, OnInit, inject } from "@angular/core";
+ import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
+ import { Router } from "@angular/router";
+ import { Subject, filter, firstValueFrom, map, timeout } from "rxjs";
+@@ -27,6 +27,8 @@
+ import { DialogService, RouterFocusManagerService, ToastService } from "@bitwarden/components";
+ import { KeyService, BiometricStateService } from "@bitwarden/key-management";
+ 
++import { VaultMacCopyService } from "./vault/services/vault-mac-copy.service";
++
+ const BroadcasterSubscriptionId = "AppComponent";
+ const IdleTimeout = 60000 * 10; // 10 minutes
+ 
+@@ -42,6 +44,8 @@
+   private idleTimer: number = null;
+   private isIdle = false;
+   private destroy$ = new Subject<void>();
++
++  private readonly macCopyService = inject(VaultMacCopyService);
+ 
+   loading = false;
+ 
+@@ -84,6 +88,7 @@
+   }
+ 
+   ngOnInit() {
++    this.macCopyService.register();
+     this.ngZone.runOutsideAngular(() => {
+       window.onmousemove = () => this.recordActivity();
+       window.onmousedown = () => this.recordActivity();
+diff --git a/apps/web/src/app/vault/services/vault-mac-copy.service.ts b/apps/web/src/app/vault/services/vault-mac-copy.service.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/app/vault/services/vault-mac-copy.service.ts
+@@ -0,0 +1,136 @@
++import { Injectable, NgZone, inject } from "@angular/core";
++import { firstValueFrom } from "rxjs";
++
++import { AccountService } from "@bitwarden/common/auth/abstractions/account.service";
++import { AuthService } from "@bitwarden/common/auth/abstractions/auth.service";
++import { AuthenticationStatus } from "@bitwarden/common/auth/enums/authentication-status";
++import { EventCollectionService, EventType } from "@bitwarden/common/dirt/event-logs";
++import { uuidAsString } from "@bitwarden/common/platform/abstractions/sdk/sdk.service";
++import { CipherService } from "@bitwarden/common/vault/abstractions/cipher.service";
++import { CipherRepromptType, CipherType } from "@bitwarden/common/vault/enums";
++import { CipherViewLikeUtils } from "@bitwarden/common/vault/utils/cipher-view-like-utils";
++import { PasswordRepromptService } from "@bitwarden/vault";
++
++type Request = {
++  url: string;
++  field: "login" | "password";
++  id: string;
++  allowReprompt: boolean;
++};
++
++@Injectable({ providedIn: "root" })
++export class VaultMacCopyService {
++  private readonly accounts = inject(AccountService);
++  private readonly auth = inject(AuthService);
++  private readonly ciphers = inject(CipherService);
++  private readonly reprompt = inject(PasswordRepromptService);
++  private readonly events = inject(EventCollectionService);
++  private readonly zone = inject(NgZone);
++
++  register() {
++    if (!navigator.userAgent.endsWith(" VaultMacMenu/1")) {
++      return;
++    }
++
++    Object.defineProperty(window, "vaultMacCopy", {
++      value: (request: Request) => this.zone.run(() => this.prepareCopy(request)),
++    });
++  }
++
++  private async prepareCopy(request: Request) {
++    if (!request || !["login", "password"].includes(request.field)) {
++      return { status: "unavailable" };
++    }
++
++    let url: URL;
++    try {
++      url = new URL(request.url);
++    } catch {
++      return { status: "unavailable" };
++    }
++    if (url.protocol !== "https:" || url.username || url.password || url.port) {
++      return { status: "unavailable" };
++    }
++
++    const account = await firstValueFrom(this.accounts.activeAccount$);
++    if (!account || (await this.auth.getAuthStatus(account.id)) !== AuthenticationStatus.Unlocked) {
++      return { status: "locked" };
++    }
++
++    const host = url.hostname.replace(/^www\./, "");
++    const findMatches = async () =>
++      (await this.ciphers.getAllDecryptedForUrl(url.href, account.id)).filter(
++        (cipher) =>
++          cipher.type === CipherType.Login &&
++          !cipher.isArchived &&
++          !cipher.isDeleted &&
++          cipher.viewPassword &&
++          !!cipher.id &&
++          !!cipher.login?.password &&
++          (request.field === "password" || !!cipher.login.username) &&
++          cipher.login.uris?.some(
++            (uri) => CipherViewLikeUtils.getUriHostname(uri)?.replace(/^www\./, "") === host,
++          ),
++      );
++
++    const matches = await findMatches();
++    const currentAccount = async () =>
++      (await firstValueFrom(this.accounts.activeAccount$))?.id === account.id &&
++      (await this.auth.getAuthStatus(account.id)) === AuthenticationStatus.Unlocked;
++
++    if (!(await currentAccount())) {
++      return { status: "locked" };
++    }
++    if (matches.length === 0) {
++      return { status: "noMatch" };
++    }
++
++    const selected = request.id
++      ? matches.find((cipher) => cipher.id === request.id)
++      : matches.length === 1
++        ? matches[0]
++        : undefined;
++    if (!selected) {
++      return {
++        status: "choose",
++        choices: matches.map((cipher) => ({
++          id: cipher.id,
++          label: [cipher.name, cipher.login.username].filter(Boolean).join(" · "),
++        })),
++      };
++    }
++
++    let cipher = selected;
++    if (cipher.reprompt !== CipherRepromptType.None) {
++      if (!request.allowReprompt || request.id !== cipher.id) {
++        return { status: "reprompt", id: cipher.id };
++      }
++      if (!(await this.reprompt.showPasswordPrompt())) {
++        return { status: "cancelled" };
++      }
++      const refreshed = (await findMatches()).find((item) => item.id === cipher.id);
++      if (!refreshed || !(await currentAccount())) {
++        return { status: "unavailable" };
++      }
++      cipher = refreshed;
++    }
++
++    await this.events.collect(
++      EventType.Cipher_ClientCopiedPassword,
++      uuidAsString(cipher.id),
++      false,
++      cipher.organizationId ? uuidAsString(cipher.organizationId) : undefined,
++    );
++    if (!(await currentAccount())) {
++      return { status: "locked" };
++    }
++
++    return {
++      status: "ready",
++      id: cipher.id,
++      value: request.field === "password"
++        ? cipher.login.password
++        : [cipher.login.username, cipher.login.password].join("\n"),
++    };
++  }
++}
+diff --git a/apps/web/src/app/vault/services/vault-mac-copy.service.spec.ts b/apps/web/src/app/vault/services/vault-mac-copy.service.spec.ts
+new file mode 100644
+--- /dev/null
++++ b/apps/web/src/app/vault/services/vault-mac-copy.service.spec.ts
+@@ -0,0 +1,106 @@
++import { randomUUID } from "node:crypto";
++
++import { TestBed } from "@angular/core/testing";
++import { of } from "rxjs";
++
++import { AccountService } from "@bitwarden/common/auth/abstractions/account.service";
++import { AuthService } from "@bitwarden/common/auth/abstractions/auth.service";
++import { AuthenticationStatus } from "@bitwarden/common/auth/enums/authentication-status";
++import { EventCollectionService } from "@bitwarden/common/dirt/event-logs";
++import { CipherService } from "@bitwarden/common/vault/abstractions/cipher.service";
++import { CipherRepromptType, CipherType } from "@bitwarden/common/vault/enums";
++import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
++import { LoginUriView } from "@bitwarden/common/vault/models/view/login-uri.view";
++import { LoginView } from "@bitwarden/common/vault/models/view/login.view";
++import { PasswordRepromptService } from "@bitwarden/vault";
++
++import { VaultMacCopyService } from "./vault-mac-copy.service";
++
++describe("VaultMacCopyService", () => {
++  const request = { url: "https://github.com/", field: "login" as const, id: "", allowReprompt: false };
++  const userId = "8b95ff56-2687-4d80-981f-38bbba7594fd";
++  const sampleValue = randomUUID();
++  let service: VaultMacCopyService;
++  let matches: jest.Mock;
++  let authStatus: jest.Mock;
++  let showPasswordPrompt: jest.Mock;
++
++  function login(id: string, host = "github.com") {
++    const cipher = new CipherView();
++    cipher.id = id;
++    cipher.name = "GitHub fixture";
++    cipher.type = CipherType.Login;
++    cipher.reprompt = CipherRepromptType.None;
++    cipher.login = new LoginView();
++    cipher.login.username = "fixture-user";
++    cipher.login.password = sampleValue;
++    const uri = new LoginUriView();
++    uri.uri = "https://" + host;
++    cipher.login.uris = [uri];
++    return cipher;
++  }
++
++  const first = "a34fca5b-8559-479a-8b99-10fba594c872";
++  const second = "74db5d9e-938a-4c2f-8b1e-94eb37085c85";
++
++  beforeEach(() => {
++    matches = jest.fn().mockResolvedValue([login(first)]);
++    authStatus = jest.fn().mockResolvedValue(AuthenticationStatus.Unlocked);
++    showPasswordPrompt = jest.fn();
++    TestBed.configureTestingModule({
++      providers: [
++        { provide: AccountService, useValue: { activeAccount$: of({ id: userId }) } },
++        { provide: AuthService, useValue: { getAuthStatus: authStatus } },
++        { provide: CipherService, useValue: { getAllDecryptedForUrl: matches } },
++        { provide: PasswordRepromptService, useValue: { showPasswordPrompt } },
++        { provide: EventCollectionService, useValue: { collect: jest.fn().mockResolvedValue(undefined) } },
++      ],
++    });
++    service = TestBed.inject(VaultMacCopyService);
++  });
++
++  it("asks which login to use and withholds passwords when multiple items match", async () => {
++    matches.mockResolvedValue([login(first), login(second)]);
++    await expect(service["prepareCopy"](request)).resolves.toEqual({
++      status: "choose",
++      choices: [
++        { id: first, label: "GitHub fixture · fixture-user" },
++        { id: second, label: "GitHub fixture · fixture-user" },
++      ],
++    });
++  });
++
++  it("returns just the requested fields from the chosen item", async () => {
++    await expect(service["prepareCopy"]({ ...request, id: first })).resolves.toEqual({
++      status: "ready", id: first, value: "fixture-user\n" + sampleValue,
++    });
++    await expect(service["prepareCopy"]({ ...request, id: first, field: "password" })).resolves.toEqual({
++      status: "ready", id: first, value: sampleValue,
++    });
++  });
++
++  it("rejects hidden passwords and logins for other sites", async () => {
++    const hidden = login(first);
++    hidden.viewPassword = false;
++    matches.mockResolvedValue([hidden, login(second, "github.com.example.test")]);
++    await expect(service["prepareCopy"](request)).resolves.toEqual({ status: "noMatch" });
++  });
++
++  it("requires the same item to be approved before copying a protected password", async () => {
++    const protectedLogin = login(first);
++    protectedLogin.reprompt = CipherRepromptType.Password;
++    matches.mockResolvedValue([protectedLogin]);
++    await expect(service["prepareCopy"](request)).resolves.toEqual({ status: "reprompt", id: first });
++    expect(showPasswordPrompt).not.toHaveBeenCalled();
++    showPasswordPrompt.mockResolvedValue(false);
++    await expect(service["prepareCopy"]({ ...request, id: first, allowReprompt: true })).resolves.toEqual({
++      status: "cancelled",
++    });
++  });
++
++  it("does not look up logins while the vault is locked", async () => {
++    authStatus.mockResolvedValue(AuthenticationStatus.Locked);
++    await expect(service["prepareCopy"](request)).resolves.toEqual({ status: "locked" });
++    expect(matches).not.toHaveBeenCalled();
++  });
++});

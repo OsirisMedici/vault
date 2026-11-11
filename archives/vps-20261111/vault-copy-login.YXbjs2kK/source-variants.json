@@ -1,0 +1,8 @@
+[
+  {
+    "folder": "source",
+    "base_commit": "d2a095eb800fe80a9bc524579b974796eae51994",
+    "working_tree": "ffe2bc6460e76d28fd0b2d90dac07945dd542569",
+    "patch": "source.patch"
+  }
+]

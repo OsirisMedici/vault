@@ -1,0 +1,36 @@
+{
+  "source_revision": "d5836ec3bb2315de38043d742ae5daca11a4944a",
+  "dummy_only": true,
+  "checks": [
+    {
+      "check": "https_bearer_injection",
+      "expected_status": 200,
+      "observed_status": 200,
+      "passed": true
+    },
+    {
+      "check": "https_basic_authentication",
+      "expected_status": 200,
+      "observed_status": 200,
+      "passed": true
+    },
+    {
+      "check": "unmatched_destination_denied",
+      "expected_status": 403,
+      "observed_status": 403,
+      "passed": true
+    },
+    {
+      "check": "proxy_cannot_reveal_credentials",
+      "expected_status": 403,
+      "observed_status": 403,
+      "passed": true
+    },
+    {
+      "check": "revoked_session_denied_new_connect",
+      "expected_status": 407,
+      "observed_status": 407,
+      "passed": true
+    }
+  ]
+}

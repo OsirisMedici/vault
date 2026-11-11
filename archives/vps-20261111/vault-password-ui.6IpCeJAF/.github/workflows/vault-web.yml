@@ -1,0 +1,78 @@
+name: Vault web source and build
+
+on:
+  push:
+    branches: [main, 'work/**']
+    paths: ['scripts/*agent-web*', 'tooling/agent-web/**', 'branding/**', 'upstream.lock.json', '.github/workflows/vault-web.yml']
+  pull_request:
+    paths: ['scripts/*agent-web*', 'tooling/agent-web/**', 'branding/**', 'upstream.lock.json', '.github/workflows/vault-web.yml']
+  workflow_dispatch:
+    inputs:
+      production_confirm:
+        description: 'Run one heavyweight Linux source build and package (no deployment)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: '1.4.4'
+      - name: Static source hygiene (no dependencies)
+        run: bun scripts/run-agent-web-ci.mjs hygiene
+      - name: One aggregate synthetic tooling case
+        run: bun test ./scripts/check-agent-web-ci.test.mjs
+
+  production-build:
+    needs: hygiene
+    if: github.event_name == 'workflow_dispatch' && inputs.production_confirm == true && github.ref_type == 'branch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    concurrency:
+      group: vault-web-production-build
+      cancel-in-progress: false
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        with:
+          bun-version: '1.4.4'
+      - name: Provision documented compiler-only runtime
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '26.12.0'
+      - name: Fetch only pinned public web source
+        run: git submodule update --init --depth 1 -- upstream/web
+      - name: Prepare, frozen install, compile, package and receipt
+        run: bun scripts/run-agent-web-ci.mjs production
+      - name: Retain bounded public build receipt and attribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vault-web-receipt-${{ github.sha }}
+          path: .cache/agent-web-ci/receipts/
+          if-no-files-found: error
+          retention-days: 3
+      - name: Retain packaged public web files only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vault-web-${{ github.sha }}
+          path: .cache/agent-web-ci/web/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+          include-hidden-files: true

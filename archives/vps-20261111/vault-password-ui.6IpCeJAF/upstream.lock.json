@@ -1,0 +1,22 @@
+{
+  "server": {
+    "url": "https://github.com/dani-garcia/vaultwarden.git",
+    "tag": "1.37.4",
+    "commit": "7c188967e7a467b19b2757bc3326f9cf3ccae327",
+    "license": "AGPL-3.0"
+  },
+  "web": {
+    "url": "https://github.com/vaultwarden/vw_web_builds.git",
+    "tag": "v2026.7.0+0",
+    "commit": "d2a095eb800fe80a9bc524579b974796eae51994",
+    "license": "GPL-3.0 default; see upstream license map"
+  },
+  "baseImage": "vaultwarden/server:1.37.4@sha256:efb3cde962015fcc036b2ea625242248611943b27212ebf4392841fb30fad055",
+  "desktop": {
+    "url": "https://github.com/bitwarden/clients.git",
+    "tag": "desktop-v2026.10.0",
+    "commit": "b449ac1d255784380d75ef026343198891286be7",
+    "license": "GPL-3.0 default; excludes bitwarden_license build targets",
+    "scope": "macOS arm64 source candidate; signed release and Touch ID acceptance pending"
+  }
+}

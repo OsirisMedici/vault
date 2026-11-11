@@ -1,0 +1,361 @@
+diff --git a/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.ts b/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.ts
+index 54eff96..04e3307 100644
+--- a/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.ts
++++ b/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.ts
+@@ -1,4 +1,4 @@
+-import { Component, EventEmitter, inject, Input, OnDestroy, OnInit, Output } from "@angular/core";
++import { Component, EventEmitter, inject, input, Input, OnDestroy, OnInit, Output } from "@angular/core";
+ import {
+   combineLatest,
+   distinctUntilChanged,
+@@ -69,11 +69,18 @@ export class VaultFilterComponent implements OnInit, OnDestroy {
+   // eslint-disable-next-line @angular-eslint/prefer-output-emitter-ref
+   @Output() searchTextChanged = new EventEmitter<string>();
+ 
++  readonly showCollectionFilter = input(true);
++
+   isLoaded = false;
+ 
+   protected destroy$: Subject<void> = new Subject<void>();
+   get filtersList() {
+-    return this.filters ? Object.values(this.filters) : [];
++    if (!this.filters) {
++      return [];
++    }
++    return Object.values(this.filters).filter(
++      (section) => this.showCollectionFilter() || section !== this.filters?.collectionFilter,
++    );
+   }
+ 
+   protected organizationWarningsService = inject(OrganizationWarningsService);
+diff --git a/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.css b/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.css
+new file mode 100644
+index 0000000..159cb09
+--- /dev/null
++++ b/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.css
+@@ -0,0 +1,105 @@
++.vault-collection-toolbar {
++  /* Cult UI Toolbar Expandable uses a 250 ms Motion spring with 0.1 bounce.
++     These stops sample that spring for Angular without a second UI runtime. */
++  --vault-collection-spring: linear(
++    0, 0.0698, 0.2176, 0.3835, 0.5372, 0.6662, 0.7677, 0.8438, 0.8986, 0.9367, 0.9623,
++    0.9789, 0.9893, 0.9954, 0.9989, 1.0006, 1.0013, 1.0015, 1.0014, 1.0012, 1
++  );
++
++  margin-block-end: 0.75rem;
++}
++
++.vault-collection-trigger,
++.vault-collection-choice {
++  display: inline-flex;
++  align-items: center;
++  gap: 0.5rem;
++  min-height: 2.25rem;
++  max-width: 100%;
++  padding: 0.375rem 0.625rem;
++  border: 1px solid rgb(var(--color-secondary-300));
++  border-radius: 0.5rem;
++  background: rgb(var(--color-background));
++  color: rgb(var(--color-text-main));
++  font-size: 0.875rem;
++  font-weight: 500;
++  text-align: start;
++  overflow-wrap: anywhere;
++}
++
++.vault-collection-trigger:hover,
++.vault-collection-choice:hover {
++  background: rgb(var(--color-background-alt));
++}
++
++.vault-collection-trigger[aria-expanded="true"],
++.vault-collection-trigger.vault-collection-active,
++.vault-collection-choice[aria-pressed="true"] {
++  border-color: rgb(var(--color-primary-600));
++  color: rgb(var(--color-primary-600));
++}
++
++.vault-collection-trigger:focus-visible,
++.vault-collection-choice:focus-visible {
++  outline: 2px solid rgb(var(--color-primary-600));
++  outline-offset: 2px;
++}
++
++.vault-collection-chevron {
++  transition: transform 250ms ease-out;
++  transition-timing-function: var(--vault-collection-spring, ease-out);
++}
++
++.vault-collection-trigger[aria-expanded="true"] .vault-collection-chevron {
++  transform: rotate(180deg);
++}
++
++.vault-collection-unfold {
++  display: grid;
++  grid-template-rows: 0fr;
++  transition: grid-template-rows 250ms ease-out;
++  transition-timing-function: var(--vault-collection-spring, ease-out);
++}
++
++.vault-collection-unfold-open {
++  grid-template-rows: 1fr;
++}
++
++.vault-collection-clip {
++  min-height: 0;
++  overflow: hidden;
++}
++
++.vault-collection-choices {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 0.5rem;
++  max-height: 15rem;
++  overflow: auto;
++  padding: 0.625rem;
++  border: 1px solid rgb(var(--color-secondary-300));
++  border-radius: 0.75rem;
++  background: rgb(var(--color-background-alt));
++}
++
++.vault-collection-choice small {
++  display: block;
++  color: rgb(var(--color-text-muted));
++}
++
++.vault-collection-marker {
++  flex: none;
++  min-width: 1.375rem;
++  padding: 0.125rem;
++  border-radius: 0.25rem;
++  background: rgb(var(--color-background-alt));
++  font-size: 0.6875rem;
++  text-align: center;
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .vault-collection-unfold,
++  .vault-collection-chevron {
++    transition: none;
++  }
++}
+diff --git a/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.html b/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.html
+index ff4d5fc..26c456a 100644
+--- a/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.html
++++ b/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.html
+@@ -1,5 +1,89 @@
+ <!-- eslint-disable tailwindcss/no-custom-classname -->
+-@if (filters() && filters()!.length) {
++@if (collectionToolbar()) {
++  @if (toolbarChoices().length) {
++    <app-coachmark #toolbarCoachmark stepId="shareWithCollections" />
++    <div
++      class="vault-collection-toolbar"
++      (keydown.escape)="toolbarExpanded() && closeCollectionToolbar(collectionTrigger)"
++    >
++      @let selected = activeFilter.selectedCollectionNode;
++      <button
++        #collectionTrigger
++        type="button"
++        class="vault-collection-trigger"
++        [class.vault-collection-active]="selected"
++        [attr.aria-expanded]="toolbarExpanded()"
++        aria-controls="vault-collection-options"
++        [bitPopoverAnchorFor]="toolbarCoachmark.popover()"
++        [popoverOpen]="collectionsCoachmarkOpen()"
++        [spotlight]="true"
++        [position]="coachmarkService.getStepPosition('shareWithCollections')"
++        [closeOnBackdropClick]="false"
++        (click)="toolbarExpanded.set(!toolbarExpanded())"
++      >
++        <i class="bwi bwi-collection-shared" aria-hidden="true"></i>
++        <span>
++          {{
++            selected && selected.node.id !== "AllCollections"
++              ? selected.node.name
++              : ("collections" | i18n)
++          }}
++        </span>
++        <i
++          class="bwi bwi-angle-down vault-collection-chevron"
++          aria-hidden="true"
++        ></i>
++      </button>
++
++      <div
++        class="vault-collection-unfold"
++        id="vault-collection-options"
++        [class.vault-collection-unfold-open]="toolbarExpanded()"
++        [attr.inert]="toolbarExpanded() ? null : ''"
++      >
++        <div class="vault-collection-clip">
++          <div class="vault-collection-choices">
++            <button
++              type="button"
++              class="vault-collection-choice"
++              [attr.aria-pressed]="!selected"
++              (click)="clearCollection(collectionTrigger)"
++            >
++              {{ "allItems" | i18n }}
++            </button>
++            <button
++              type="button"
++              class="vault-collection-choice"
++              [attr.aria-pressed]="selected?.node?.id === 'AllCollections'"
++              (click)="chooseCollection(headerNode(), collectionTrigger)"
++            >
++              {{ "collections" | i18n }}
++            </button>
++            @for (choice of toolbarChoices(); track choice.filter.node.id; let index = $index) {
++              @let active = selected && selected.node.id === choice.filter.node.id;
++              <button
++                type="button"
++                class="vault-collection-choice"
++                [attr.aria-pressed]="!!active"
++                (click)="chooseCollection(choice.filter, collectionTrigger)"
++              >
++                <span class="vault-collection-marker" aria-hidden="true">
++                  {{ active ? "✓" : index + 1 }}
++                </span>
++                <span>
++                  {{ choice.name }}
++                  @if (choice.organization) {
++                    <small>{{ choice.organization }}</small>
++                  }
++                </span>
++              </button>
++            }
++          </div>
++        </div>
++      </div>
++    </div>
++  }
++} @else if (filters() && filters()!.length) {
+   <!-- Collections coachmark (only active for the collections filter section) -->
+   <app-coachmark #collectionsCoachmark stepId="shareWithCollections" />
+ 
+diff --git a/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.ts b/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.ts
+index 0c28008..32ea42f 100644
+--- a/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.ts
++++ b/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.ts
+@@ -1,6 +1,6 @@
+ // FIXME: Update this file to be type safe and remove this and next line
+ // @ts-strict-ignore
+-import { Component, computed, inject, input, InjectionToken, Injector, Input } from "@angular/core";
++import { Component, computed, inject, input, InjectionToken, Injector, Input, signal } from "@angular/core";
+ import { toObservable, toSignal } from "@angular/core/rxjs-interop";
+ import { firstValueFrom, Observable } from "rxjs";
+ import { map, switchMap } from "rxjs/operators";
+@@ -11,6 +11,7 @@ import { getUserId } from "@bitwarden/common/auth/services/account.service";
+ import { ITreeNodeObject, TreeNode } from "@bitwarden/common/vault/models/domain/tree-node";
+ import {
+   VaultFilterServiceAbstraction as VaultFilterService,
++  CollectionFilter,
+   VaultFilterSection,
+   VaultFilterType,
+   VaultFilter,
+@@ -23,6 +24,7 @@ import { CoachmarkService } from "../../../../components/coachmark";
+ @Component({
+   selector: "app-filter-section",
+   templateUrl: "vault-filter-section.component.html",
++  styleUrl: "vault-filter-section.component.css",
+   standalone: false,
+ })
+ export class VaultFilterSectionComponent {
+@@ -32,6 +34,47 @@ export class VaultFilterSectionComponent {
+   // eslint-disable-next-line @angular-eslint/prefer-signals
+   @Input() activeFilter: VaultFilter;
+   readonly section = input.required<VaultFilterSection>();
++  readonly collectionToolbar = input(false);
++  readonly toolbarOrganizations = input<Organization[]>([]);
++
++  protected readonly toolbarExpanded = signal(false);
++
++  protected readonly toolbarChoices = computed(() =>
++    this.collectionToolbar() ? this.collectionChoices(this.data()?.children ?? []) : [],
++  );
++
++  private collectionChoices(
++    nodes: TreeNode<VaultFilterType>[],
++    parentName = "",
++  ): { filter: TreeNode<VaultFilterType>; name: string; organization?: string }[] {
++    const organizations = this.toolbarOrganizations();
++    return nodes.flatMap((filter) => {
++      const collection = filter.node as CollectionFilter;
++      const name = parentName ? parentName + " / " + collection.name : collection.name;
++      const organization =
++        organizations.length > 1
++          ? organizations.find((org) => org.id === collection.organizationId)?.name
++          : undefined;
++      return [{ filter, name, organization }, ...this.collectionChoices(filter.children, name)];
++    });
++  }
++
++  protected async chooseCollection(filter: TreeNode<VaultFilterType>, trigger: HTMLButtonElement) {
++    this.closeCollectionToolbar(trigger);
++    await this.onFilterSelect(filter);
++  }
++
++  protected clearCollection(trigger: HTMLButtonElement) {
++    this.closeCollectionToolbar(trigger);
++    if (this.activeFilter.selectedCollectionNode) {
++      this.activeFilter.selectedCollectionNode = undefined;
++    }
++  }
++
++  protected closeCollectionToolbar(trigger: HTMLButtonElement) {
++    this.toolbarExpanded.set(false);
++    trigger.focus();
++  }
+ 
+   /** Whether this section is the collection filter (enables coachmark) */
+   // eslint-disable-next-line @angular-eslint/prefer-signals
+diff --git a/apps/web/src/app/vault/individual-vault/vault.component.html b/apps/web/src/app/vault/individual-vault/vault.component.html
+index 91cc1af..fb11444 100644
+--- a/apps/web/src/app/vault/individual-vault/vault.component.html
++++ b/apps/web/src/app/vault/individual-vault/vault.component.html
+@@ -22,6 +22,7 @@
+     <app-vault-filter
+       #vaultFilter
+       [activeFilter]="activeFilter"
++      [showCollectionFilter]="false"
+       [searchText]="currentSearchText$ | async"
+       (searchTextChanged)="filterSearchText($event)"
+       (onEditFolder)="editFolder($event)"
+@@ -47,6 +48,16 @@
+       </bit-callout>
+     }
+ 
++    @if (vaultFilter.filters?.collectionFilter; as collectionFilter) {
++      <app-filter-section
++        [section]="collectionFilter"
++        [activeFilter]="activeFilter"
++        [isCollectionFilter]="true"
++        [collectionToolbar]="true"
++        [toolbarOrganizations]="allOrganizations"
++      />
++    }
++
+     <app-vault-items
+       #vaultItems
+       [ciphers]="ciphers"
+diff --git a/apps/web/src/app/vault/individual-vault/vault.component.ts b/apps/web/src/app/vault/individual-vault/vault.component.ts
+index 11e1896..bfed8fa 100644
+--- a/apps/web/src/app/vault/individual-vault/vault.component.ts
++++ b/apps/web/src/app/vault/individual-vault/vault.component.ts
+@@ -136,6 +136,7 @@ import { openBulkDeleteDialog } from "./bulk-action-dialogs/bulk-delete-dialog/b
+ import { BulkDeleteDialogWebAdapter } from "./bulk-action-dialogs/bulk-delete-dialog-web.adapter";
+ import { VaultBannersComponent } from "./vault-banners/vault-banners.component";
+ import { VaultFilterComponent } from "./vault-filter/components/vault-filter.component";
++import { VaultFilterSharedModule } from "./vault-filter/shared/vault-filter-shared.module";
+ import { VaultFilterModule } from "./vault-filter/vault-filter.module";
+ import { VaultHeaderComponent } from "./vault-header/vault-header.component";
+ import { VaultOnboardingComponent } from "./vault-onboarding/vault-onboarding.component";
+@@ -163,6 +164,7 @@ type EmptyStateMap = Record<EmptyStateType, EmptyStateItem>;
+     VaultOnboardingComponent,
+     VaultBannersComponent,
+     VaultFilterModule,
++    VaultFilterSharedModule,
+     VaultItemsModule,
+     SharedModule,
+     VaultBatchActionComponent,

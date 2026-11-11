@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "address": "http://127.0.0.1:19431",
+  "vaultName": "bitwarden-import-20261022",
+  "tokenFile": "/private/path/integration-v1/member-token"
+}

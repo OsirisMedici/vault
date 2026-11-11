@@ -1,0 +1,1227 @@
+diff --git a/apps/web/src/app/layouts/product-switcher/navigation-switcher/navigation-switcher.component.html b/apps/web/src/app/layouts/product-switcher/navigation-switcher/navigation-switcher.component.html
+index a580489..0d3c338 100644
+--- a/apps/web/src/app/layouts/product-switcher/navigation-switcher/navigation-switcher.component.html
++++ b/apps/web/src/app/layouts/product-switcher/navigation-switcher/navigation-switcher.component.html
+@@ -1,67 +1,85 @@
+ @let accessibleProducts = accessibleProducts$ | async;
+-@if (accessibleProducts && accessibleProducts.length > 1) {
+-  <bit-nav-divider></bit-nav-divider>
+-  <!-- [attr.icon] is used to keep the icon attribute on the bit-nav-item after prod mode is enabled. Matches other navigation items and assists in automated testing. -->
+-  <bit-nav-item
+-    *ngFor="let product of accessibleProducts"
+-    [icon]="product.icon"
+-    [text]="product.name"
+-    [route]="product.appRoute"
+-    [attr.icon]="product.icon"
+-    [forceActiveStyles]="product.isActive"
+-    focusAfterNavTarget="body"
+-  >
+-  </bit-nav-item>
+-}
++@if (workspaceRail() && !sideNavService.open()) {
++  @for (product of accessibleProducts; track product.name) {
++    @if (product.appRoute !== "/vault") {
++      <a
++        class="vault-workspace-rail-link"
++        [routerLink]="product.appRoute"
++        [attr.aria-label]="product.name"
++        [title]="product.name"
++      >
++        <i class="bwi {{ product.icon }}" aria-hidden="true"></i>
++        @if (product.icon === "bwi-business") {
++          <span>{{ "vaultWorkspaceAdminShort" | i18n }}</span>
++        }
++      </a>
++    }
++  }
++} @else {
++  @if (accessibleProducts && accessibleProducts.length > 1) {
++    <bit-nav-divider></bit-nav-divider>
++    <!-- [attr.icon] is used to keep the icon attribute on the bit-nav-item after prod mode is enabled. Matches other navigation items and assists in automated testing. -->
++    <bit-nav-item
++      *ngFor="let product of accessibleProducts"
++      [icon]="product.icon"
++      [text]="product.name"
++      [route]="product.appRoute"
++      [attr.icon]="product.icon"
++      [forceActiveStyles]="product.isActive"
++      focusAfterNavTarget="body"
++    >
++    </bit-nav-item>
++  }
+ 
+-@if (shouldShowPremiumUpgradeButton$ | async) {
+-  <app-upgrade-nav-button></app-upgrade-nav-button>
+-}
++  @if (shouldShowPremiumUpgradeButton$ | async) {
++    <app-upgrade-nav-button></app-upgrade-nav-button>
++  }
+ 
+-@let moreProducts = moreProducts$ | async;
+-@if (moreProducts && moreProducts.length > 0) {
+-  <section class="tw-mt-2 tw-flex tw-w-full tw-flex-col tw-gap-2 tw-border-0">
+-    <span class="tw-text-xs !tw-text-fg-nav tw-p-2 tw-pb-0">{{ "moreFromBitwarden" | i18n }}</span>
+-    <ng-container *ngFor="let more of moreProducts">
+-      <div class="tw-ps-2 tw-pe-2">
+-        <!-- <a> for when the marketing route is external -->
+-        <a
+-          *ngIf="more.marketingRoute.external"
+-          [href]="more.marketingRoute.route"
+-          target="_blank"
+-          rel="noreferrer"
+-          class="tw-flex tw-px-3 tw-py-2 tw-rounded-md tw-font-medium !tw-text-fg-nav !tw-no-underline hover:tw-bg-hover-contrast [&>:not(.bwi)]:hover:tw-underline"
+-        >
+-          <i class="bwi bwi-fw {{ more.icon }} tw-mt-1 tw-mx-1"></i>
+-          <div>
+-            {{ more.otherProductOverrides?.name ?? more.name }}
+-            <div
+-              *ngIf="more.otherProductOverrides?.supportingText"
+-              class="tw-text-xs tw-font-normal"
+-            >
+-              {{ more.otherProductOverrides.supportingText }}
++  @let moreProducts = moreProducts$ | async;
++  @if (moreProducts && moreProducts.length > 0) {
++    <section class="tw-mt-2 tw-flex tw-w-full tw-flex-col tw-gap-2 tw-border-0">
++      <span class="tw-text-xs !tw-text-fg-nav tw-p-2 tw-pb-0">{{ "moreFromBitwarden" | i18n }}</span>
++      <ng-container *ngFor="let more of moreProducts">
++        <div class="tw-ps-2 tw-pe-2">
++          <!-- <a> for when the marketing route is external -->
++          <a
++            *ngIf="more.marketingRoute.external"
++            [href]="more.marketingRoute.route"
++            target="_blank"
++            rel="noreferrer"
++            class="tw-flex tw-px-3 tw-py-2 tw-rounded-md tw-font-medium !tw-text-fg-nav !tw-no-underline hover:tw-bg-hover-contrast [&>:not(.bwi)]:hover:tw-underline"
++          >
++            <i class="bwi bwi-fw {{ more.icon }} tw-mt-1 tw-mx-1"></i>
++            <div>
++              {{ more.otherProductOverrides?.name ?? more.name }}
++              <div
++                *ngIf="more.otherProductOverrides?.supportingText"
++                class="tw-text-xs tw-font-normal"
++              >
++                {{ more.otherProductOverrides.supportingText }}
++              </div>
+             </div>
+-          </div>
+-        </a>
+-        <!-- <a> for when the marketing route is internal, it needs to use [routerLink] instead of [href] like the external <a> uses. -->
+-        <a
+-          *ngIf="!more.marketingRoute.external"
+-          [routerLink]="more.marketingRoute.route"
+-          rel="noreferrer"
+-          class="tw-flex tw-px-3 tw-py-2 tw-rounded-md tw-font-medium !tw-text-fg-nav !tw-no-underline hover:tw-bg-hover-contrast [&>:not(.bwi)]:hover:tw-underline"
+-        >
+-          <i class="bwi bwi-fw {{ more.icon }} tw-mt-1 tw-mx-1"></i>
+-          <div>
+-            {{ more.otherProductOverrides?.name ?? more.name }}
+-            <div
+-              *ngIf="more.otherProductOverrides?.supportingText"
+-              class="tw-text-xs tw-font-normal"
+-            >
+-              {{ more.otherProductOverrides.supportingText }}
++          </a>
++          <!-- <a> for when the marketing route is internal, it needs to use [routerLink] instead of [href] like the external <a> uses. -->
++          <a
++            *ngIf="!more.marketingRoute.external"
++            [routerLink]="more.marketingRoute.route"
++            rel="noreferrer"
++            class="tw-flex tw-px-3 tw-py-2 tw-rounded-md tw-font-medium !tw-text-fg-nav !tw-no-underline hover:tw-bg-hover-contrast [&>:not(.bwi)]:hover:tw-underline"
++          >
++            <i class="bwi bwi-fw {{ more.icon }} tw-mt-1 tw-mx-1"></i>
++            <div>
++              {{ more.otherProductOverrides?.name ?? more.name }}
++              <div
++                *ngIf="more.otherProductOverrides?.supportingText"
++                class="tw-text-xs tw-font-normal"
++              >
++                {{ more.otherProductOverrides.supportingText }}
++              </div>
+             </div>
+-          </div>
+-        </a>
+-      </div>
+-    </ng-container>
+-  </section>
++          </a>
++        </div>
++      </ng-container>
++    </section>
++  }
+ }
+diff --git a/apps/web/src/app/layouts/product-switcher/navigation-switcher/navigation-switcher.component.ts b/apps/web/src/app/layouts/product-switcher/navigation-switcher/navigation-switcher.component.ts
+index ab835b6..3ff0307 100644
+--- a/apps/web/src/app/layouts/product-switcher/navigation-switcher/navigation-switcher.component.ts
++++ b/apps/web/src/app/layouts/product-switcher/navigation-switcher/navigation-switcher.component.ts
+@@ -1,6 +1,8 @@
+-import { Component } from "@angular/core";
++import { Component, inject, input } from "@angular/core";
+ import { map, Observable } from "rxjs";
+ 
++import { SideNavService } from "@bitwarden/components";
++
+ import { ProductSwitcherItem, ProductSwitcherService } from "../shared/product-switcher.service";
+ 
+ // FIXME(https://bitwarden.atlassian.net/browse/CL-764): Migrate to OnPush
+@@ -11,6 +13,9 @@ import { ProductSwitcherItem, ProductSwitcherService } from "../shared/product-s
+   standalone: false,
+ })
+ export class NavigationProductSwitcherComponent {
++  readonly workspaceRail = input(false);
++  protected readonly sideNavService = inject(SideNavService);
++
+   constructor(private productSwitcherService: ProductSwitcherService) {}
+ 
+   protected readonly shouldShowPremiumUpgradeButton$: Observable<boolean> =
+diff --git a/apps/web/src/app/layouts/user-layout.component.html b/apps/web/src/app/layouts/user-layout.component.html
+index ff3840a..18462dc 100644
+--- a/apps/web/src/app/layouts/user-layout.component.html
++++ b/apps/web/src/app/layouts/user-layout.component.html
+@@ -1,64 +1,144 @@
++<!-- eslint-disable tailwindcss/no-custom-classname -->
+ <app-layout>
+-  <app-side-nav>
++  <app-side-nav [workspaceFooter]="true">
+     <bit-nav-logo [openIcon]="logo" route="." [label]="'passwordManager' | i18n"></bit-nav-logo>
+ 
+-    <bit-nav-item icon="bwi-vault" [text]="'vaults' | i18n" route="vault"></bit-nav-item>
+-    <bit-nav-item icon="bwi-lock" text="Agent access" route="agent-vault"></bit-nav-item>
+-    @if (sendEnabled$ | async) {
+-      <bit-nav-item icon="bwi-send" [text]="'send' | i18n" route="sends"></bit-nav-item>
++    @if (sideNavService.open()) {
++      <bit-nav-item icon="bwi-vault" [text]="'vaults' | i18n" route="vault"></bit-nav-item>
++    } @else {
++      <a
++        class="vault-workspace-rail-link"
++        routerLink="vault"
++        routerLinkActive="vault-workspace-rail-active"
++        ariaCurrentWhenActive="page"
++      >
++        <i class="bwi bwi-vault" aria-hidden="true"></i>
++        <span>{{ "vaults" | i18n }}</span>
++      </a>
+     }
+-    <bit-nav-group
+-      icon="bwi-wrench"
+-      [text]="'tools' | i18n"
+-      route="tools"
+-      [open]="toolsNavGroupOpen()"
++
++    <div
++      slot="footer"
++      class="tw-min-w-0 tw-flex-1"
+       [bitPopoverAnchorFor]="importCoachmark.popover()"
+-      [popoverOpen]="importCoachmarkOpen() && !sideNavService.open()"
++      [popoverOpen]="importCoachmarkOpen() && !settingsOpen()"
+       [position]="coachmarkService.getStepPosition('importData')"
+       [closeOnBackdropClick]="false"
+       [spotlight]="true"
+     >
+-      <bit-nav-item [text]="'generator' | i18n" route="tools/generator"></bit-nav-item>
+-      <bit-nav-item
+-        [text]="'importNoun' | i18n"
+-        route="tools/import"
+-        [bitPopoverAnchorFor]="importCoachmark.popover()"
+-        [popoverOpen]="importCoachmarkOpen() && sideNavService.open()"
+-        [position]="coachmarkService.getStepPosition('importData')"
++      <button
++        #settingsButton
++        cdkOverlayOrigin
++        #settingsOrigin="cdkOverlayOrigin"
++        type="button"
++        class="vault-workspace-settings-button"
++        [class.vault-workspace-rail-link]="!sideNavService.open()"
++        [attr.aria-expanded]="settingsOpen()"
++        [attr.aria-controls]="settingsOpen() ? 'vault-workspace-settings' : null"
++        aria-haspopup="dialog"
++        (click)="settingsOpen() ? closeSettings() : settingsOpen.set(true)"
++        [bitPopoverAnchorFor]="reportsCoachmark.popover()"
++        [popoverOpen]="reportsCoachmarkOpen() && !settingsOpen()"
++        [position]="coachmarkService.getStepPosition('monitorSecurity')"
+         [closeOnBackdropClick]="false"
+         [spotlight]="true"
+-      ></bit-nav-item>
++      >
++        <i class="bwi bwi-cog" aria-hidden="true"></i>
++        <span>{{ "settings" | i18n }}</span>
++        @if (sideNavService.open()) {
++          <i
++            class="bwi tw-ml-auto"
++            [ngClass]="settingsOpen() ? 'bwi-angle-down' : 'bwi-angle-up'"
++            aria-hidden="true"
++          ></i>
++        }
++      </button>
++
++      <ng-template
++        cdkConnectedOverlay
++        [cdkConnectedOverlayOrigin]="settingsOrigin"
++        [cdkConnectedOverlayOpen]="settingsOpen()"
++        [cdkConnectedOverlayPositions]="settingsPositions()"
++        [cdkConnectedOverlayPush]="true"
++        [cdkConnectedOverlayViewportMargin]="8"
++        (overlayOutsideClick)="!settingsButton.contains($any($event.target)) && closeSettings()"
++        (overlayKeydown)="$event.key === 'Escape' && closeSettings()"
++      >
++        <section
++          id="vault-workspace-settings"
++          class="vault-workspace-settings"
++          role="dialog"
++          aria-labelledby="vault-workspace-settings-title"
++          cdkTrapFocus
++          cdkTrapFocusAutoCapture
++        >
++          <div id="vault-workspace-settings-title" class="vault-workspace-settings-title">
++            {{ "settings" | i18n }}
++          </div>
++          <a cdkFocusInitial routerLink="settings/account" (click)="closeSettings()">
++            <i class="bwi bwi-user" aria-hidden="true"></i>{{ "myAccount" | i18n }}
++          </a>
++          <a routerLink="settings/security" (click)="closeSettings()">
++            <i class="bwi bwi-shield" aria-hidden="true"></i>{{ "security" | i18n }}
++          </a>
++          <a routerLink="settings/appearance" (click)="closeSettings()">
++            <i class="bwi bwi-adjust" aria-hidden="true"></i>{{ "appearance" | i18n }}
++          </a>
++          <a routerLink="settings/domain-rules" (click)="closeSettings()">
++            <i class="bwi bwi-globe" aria-hidden="true"></i>{{ "domainRules" | i18n }}
++          </a>
++          @if (subscriptionRoute$ | async; as subscriptionRoute) {
++            <a [routerLink]="subscriptionRoute" (click)="closeSettings()">
++              {{ "subscription" | i18n }}
++            </a>
++          }
++          @if (showEmergencyAccess()) {
++            <a routerLink="settings/emergency-access" (click)="closeSettings()">
++              {{ "emergencyAccess" | i18n }}
++            </a>
++          }
++          @if (showFreeFamilies$ | async) {
++            <a routerLink="settings/sponsored-families" (click)="closeSettings()">
++              {{ "sponsoredFamilies" | i18n }}
++            </a>
++          }
++          <hr />
++          <a routerLink="agent-vault" (click)="closeSettings()">
++            <i class="bwi bwi-lock" aria-hidden="true"></i>Agent access
++          </a>
++          @if (sendEnabled$ | async) {
++            <a routerLink="sends" (click)="closeSettings()">
++              <i class="bwi bwi-send" aria-hidden="true"></i>{{ "send" | i18n }}
++            </a>
++          }
++          <button
++            type="button"
++            [attr.aria-expanded]="toolsOpen()"
++            [attr.aria-controls]="toolsOpen() ? 'vault-workspace-tools' : null"
++            (click)="toolsOpen.set(!toolsOpen())"
++          >
++            <i class="bwi bwi-wrench" aria-hidden="true"></i>{{ "tools" | i18n }}
++            <i
++              class="bwi tw-ml-auto"
++              [ngClass]="toolsOpen() ? 'bwi-angle-up' : 'bwi-angle-down'"
++              aria-hidden="true"
++            ></i>
++          </button>
++          @if (toolsOpen()) {
++            <div id="vault-workspace-tools" class="vault-workspace-tools">
++              <a routerLink="tools/generator" (click)="closeSettings()">{{ "generator" | i18n }}</a>
++              <a routerLink="tools/import" (click)="closeSettings()">{{ "importNoun" | i18n }}</a>
++              <a routerLink="tools/export" (click)="closeSettings()">{{ "exportNoun" | i18n }}</a>
++            </div>
++          }
++          <a routerLink="reports" (click)="closeSettings()">
++            <i class="bwi bwi-sliders" aria-hidden="true"></i>{{ "reports" | i18n }}
++          </a>
++        </section>
++      </ng-template>
+       <app-coachmark #importCoachmark stepId="importData" />
+-      <bit-nav-item [text]="'exportNoun' | i18n" route="tools/export"></bit-nav-item>
+-    </bit-nav-group>
+-    <bit-nav-item
+-      icon="bwi-sliders"
+-      [text]="'reports' | i18n"
+-      route="reports"
+-      [bitPopoverAnchorFor]="reportsCoachmark.popover()"
+-      [popoverOpen]="reportsCoachmarkOpen()"
+-      [position]="coachmarkService.getStepPosition('monitorSecurity')"
+-      [closeOnBackdropClick]="false"
+-      [spotlight]="true"
+-    ></bit-nav-item>
+-    <app-coachmark #reportsCoachmark stepId="monitorSecurity" />
+-    <bit-nav-group icon="bwi-cog" [text]="'settings' | i18n" route="settings">
+-      <bit-nav-item [text]="'myAccount' | i18n" route="settings/account"></bit-nav-item>
+-      <bit-nav-item [text]="'security' | i18n" route="settings/security"></bit-nav-item>
+-      <bit-nav-item [text]="'appearance' | i18n" route="settings/appearance"></bit-nav-item>
+-      @let subscriptionRoute = subscriptionRoute$ | async;
+-      @if (subscriptionRoute) {
+-        <bit-nav-item [text]="'subscription' | i18n" [route]="subscriptionRoute"></bit-nav-item>
+-      }
+-      <bit-nav-item [text]="'domainRules' | i18n" route="settings/domain-rules"></bit-nav-item>
+-      @if (showEmergencyAccess()) {
+-        <bit-nav-item
+-          [text]="'emergencyAccess' | i18n"
+-          route="settings/emergency-access"
+-        ></bit-nav-item>
+-      }
+-      <billing-free-families-nav-item></billing-free-families-nav-item>
+-    </bit-nav-group>
++      <app-coachmark #reportsCoachmark stepId="monitorSecurity" />
++    </div>
+   </app-side-nav>
+ 
+   <router-outlet></router-outlet>
+diff --git a/apps/web/src/app/layouts/user-layout.component.ts b/apps/web/src/app/layouts/user-layout.component.ts
+index 2dbe304..9fe061c 100644
+--- a/apps/web/src/app/layouts/user-layout.component.ts
++++ b/apps/web/src/app/layouts/user-layout.component.ts
+@@ -1,7 +1,9 @@
+ // FIXME: Update this file to be type safe and remove this and next line
+ // @ts-strict-ignore
++import { CdkTrapFocus } from "@angular/cdk/a11y";
++import { ConnectedPosition, OverlayModule } from "@angular/cdk/overlay";
+ import { CommonModule } from "@angular/common";
+-import { Component, computed, inject, OnInit, Signal } from "@angular/core";
++import { Component, computed, inject, OnInit, signal, Signal } from "@angular/core";
+ import { toSignal } from "@angular/core/rxjs-interop";
+ import { RouterModule } from "@angular/router";
+ import { map, Observable, switchMap } from "rxjs";
+@@ -17,7 +19,7 @@ import { PopoverModule, SideNavService, SvgModule } from "@bitwarden/components"
+ import { SendPolicyService } from "@bitwarden/send-ui";
+ import { PremiumSubscriptionRoutingService } from "@bitwarden/web-vault/app/billing/individual/services/premium-subscription-routing.service";
+ 
+-import { BillingFreeFamiliesNavItemComponent } from "../billing/shared/billing-free-families-nav-item.component";
++import { FreeFamiliesPolicyService } from "../billing/services/free-families-policy.service";
+ import { CoachmarkComponent, CoachmarkService } from "../vault/components/coachmark";
+ 
+ import { WebLayoutModule } from "./web-layout.module";
+@@ -33,7 +35,8 @@ import { WebLayoutModule } from "./web-layout.module";
+     JslibModule,
+     WebLayoutModule,
+     SvgModule,
+-    BillingFreeFamiliesNavItemComponent,
++    CdkTrapFocus,
++    OverlayModule,
+     PopoverModule,
+     CoachmarkComponent,
+   ],
+@@ -57,10 +60,19 @@ export class UserLayoutComponent implements OnInit {
+     () => this.coachmarkService.activeStepId() === "monitorSecurity",
+   );
+ 
+-  /** Expand tools nav group when import coachmark is active */
+-  protected readonly toolsNavGroupOpen = computed(
+-    () => this.coachmarkService.activeStepId() === "importData",
+-  );
++  protected readonly showFreeFamilies$ = inject(FreeFamiliesPolicyService).showFreeFamilies$;
++  protected readonly settingsOpen = signal(false);
++  protected readonly toolsOpen = signal(false);
++  protected readonly settingsPositions = computed<ConnectedPosition[]>(() => [
++    this.sideNavService.open()
++      ? { originX: "start", originY: "top", overlayX: "start", overlayY: "bottom", offsetY: -8 }
++      : { originX: "end", originY: "bottom", overlayX: "start", overlayY: "bottom", offsetX: 12 },
++  ]);
++
++  protected closeSettings() {
++    this.settingsOpen.set(false);
++    this.toolsOpen.set(false);
++  }
+ 
+   constructor(
+     private syncService: SyncService,
+diff --git a/apps/web/src/app/layouts/web-side-nav.component.html b/apps/web/src/app/layouts/web-side-nav.component.html
+index 1e28536..77327af 100644
+--- a/apps/web/src/app/layouts/web-side-nav.component.html
++++ b/apps/web/src/app/layouts/web-side-nav.component.html
+@@ -1,7 +1,8 @@
+-<bit-side-nav [variant]="variant()">
++<bit-side-nav [variant]="variant()" [workspaceFooter]="workspaceFooter()">
+   <ng-content></ng-content>
++  <ng-content select="[slot=footer]" slot="footer"></ng-content>
+ 
+   <ng-container slot="product-switcher">
+-    <navigation-product-switcher></navigation-product-switcher>
++    <navigation-product-switcher [workspaceRail]="workspaceFooter()"></navigation-product-switcher>
+   </ng-container>
+ </bit-side-nav>
+diff --git a/apps/web/src/app/layouts/web-side-nav.component.ts b/apps/web/src/app/layouts/web-side-nav.component.ts
+index c7ed069..4541bd3 100644
+--- a/apps/web/src/app/layouts/web-side-nav.component.ts
++++ b/apps/web/src/app/layouts/web-side-nav.component.ts
+@@ -11,5 +11,6 @@ import { ProductSwitcherModule } from "./product-switcher/product-switcher.modul
+   changeDetection: ChangeDetectionStrategy.OnPush,
+ })
+ export class WebSideNavComponent {
++  readonly workspaceFooter = input(false);
+   readonly variant = input<SideNavVariant>("primary");
+ }
+diff --git a/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.html b/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.html
+index 96ef650..7f08f04 100644
+--- a/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.html
++++ b/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.html
+@@ -1,48 +1,135 @@
+-<div class="tw-border tw-border-solid tw-border-secondary-300 tw-rounded" data-testid="filters">
+-  @if (!isLoaded) {
+-    <div class="tw-text-center tw-p-5">
+-      <i class="bwi bwi-spinner bwi-spin" aria-hidden="true"></i>
+-    </div>
+-  } @else {
+-    <div>
+-      <div
+-        class="tw-bg-background-alt tw-border-0 tw-border-b tw-border-solid tw-border-secondary-100 tw-rounded-t tw-px-5 tw-py-2.5 tw-font-medium tw-uppercase"
+-        data-testid="filters-header"
++<!-- eslint-disable tailwindcss/no-custom-classname -->
++<section class="tw-mb-5" data-testid="filters" [attr.aria-label]="'filters' | i18n">
++  <div class="tw-mb-3">
++    <bit-search
++      id="search"
++      placeholder="{{ searchPlaceholder | i18n }}"
++      [(ngModel)]="searchText"
++      (ngModelChange)="onSearchTextChanged($event)"
++      autocomplete="off"
++      appAutofocus
++    />
++  </div>
++  @if (isLoaded && filters; as loadedFilters) {
++    <div class="vault-workspace-filter-row">
++      <button
++        type="button"
++        class="vault-collection-trigger"
++        [attr.aria-pressed]="allItemsSelected"
++        (click)="chooseAllItems()"
++      >
++        {{ "allItems" | i18n }}
++      </button>
++      <button
++        type="button"
++        class="vault-collection-trigger"
++        [attr.aria-pressed]="activeFilter.isFavorites"
++        (click)="chooseFavorites()"
++      >
++        <i class="bwi bwi-star" aria-hidden="true"></i>
++        {{ "favorites" | i18n }}
++      </button>
++      <button
++        #vaultTrigger
++        type="button"
++        class="vault-collection-trigger"
++        [class.vault-collection-active]="activeFilter.selectedOrganizationNode"
++        [attr.aria-expanded]="openFilter() === 'vault'"
++        [attr.aria-controls]="openFilter() === 'vault' ? 'vault-workspace-filter-options' : null"
++        (click)="toggleFilter('vault')"
++      >
++        {{ activeFilter.selectedOrganizationNode?.node?.name || ("vault" | i18n) }}
++        <i class="bwi bwi-angle-down vault-collection-chevron" aria-hidden="true"></i>
++      </button>
++      <app-filter-section
++        [activeFilter]="activeFilter"
++        [section]="loadedFilters.collectionFilter"
++        [isCollectionFilter]="true"
++        [collectionToolbar]="true"
++        [toolbarOrganizations]="toolbarOrganizations()"
++        [toolbarExpanded]="openFilter() === 'collection'"
++        (toolbarExpandedChange)="openFilter.set($event ? 'collection' : null)"
++      />
++      <button
++        #folderTrigger
++        type="button"
++        class="vault-collection-trigger"
++        [class.vault-collection-active]="activeFilter.selectedFolderNode"
++        [attr.aria-expanded]="openFilter() === 'folder'"
++        [attr.aria-controls]="openFilter() === 'folder' ? 'vault-workspace-filter-options' : null"
++        (click)="toggleFilter('folder')"
++      >
++        {{ activeFilter.selectedFolderNode?.node?.name || ("folder" | i18n) }}
++        <i class="bwi bwi-angle-down vault-collection-chevron" aria-hidden="true"></i>
++      </button>
++      <button
++        #typeTrigger
++        type="button"
++        class="vault-collection-trigger"
++        [class.vault-collection-active]="activeFilter.cipherType"
++        [attr.aria-expanded]="openFilter() === 'type'"
++        [attr.aria-controls]="openFilter() === 'type' ? 'vault-workspace-filter-options' : null"
++        (click)="toggleFilter('type')"
++      >
++        {{ activeFilter.cipherType ? activeFilter.selectedCipherTypeNode?.node?.name : ("type" | i18n) }}
++        <i class="bwi bwi-angle-down vault-collection-chevron" aria-hidden="true"></i>
++      </button>
++      <button
++        #moreTrigger
++        type="button"
++        class="vault-collection-trigger"
++        [class.vault-collection-active]="activeFilter.isArchived || activeFilter.isDeleted"
++        [attr.aria-expanded]="openFilter() === 'more'"
++        [attr.aria-controls]="openFilter() === 'more' ? 'vault-workspace-filter-options' : null"
++        (click)="toggleFilter('more')"
+       >
+-        {{ "filters" | i18n }}
+-        <a
+-          bitLink
+-          class="tw-float-right"
+-          href="https://bitwarden.com/help/searching-vault/"
+-          target="_blank"
+-          rel="noreferrer"
+-          appA11yTitle="{{ 'learnMoreAboutSearchingYourVault' | i18n }}"
+-          startIcon="bwi-question-circle"
+-        >
+-        </a>
+-      </div>
+-      <div class="tw-p-5" data-testid="filters-body">
+-        <div class="tw-mb-4">
+-          <bit-search
+-            id="search"
+-            placeholder="{{ searchPlaceholder | i18n }}"
+-            [(ngModel)]="searchText"
+-            (ngModelChange)="onSearchTextChanged($event)"
+-            autocomplete="off"
+-            appAutofocus
++        <i class="bwi bwi-sliders" aria-hidden="true"></i>
++        {{ "vaultWorkspaceMoreFilters" | i18n }}
++      </button>
++      @if (!allItemsSelected) {
++        <button type="button" class="vault-workspace-clear-filter" (click)="chooseAllItems()">
++          {{ "clear" | i18n }}
++        </button>
++      }
++
++      @switch (openFilter()) {
++        @case ("vault") {
++          <ng-container
++            *ngTemplateOutlet="filterPanel; context: { sections: [loadedFilters.organizationFilter], trigger: vaultTrigger }"
++          />
++        }
++        @case ("folder") {
++          <ng-container
++            *ngTemplateOutlet="filterPanel; context: { sections: [loadedFilters.folderFilter], trigger: folderTrigger }"
++          />
++        }
++        @case ("type") {
++          <ng-container
++            *ngTemplateOutlet="filterPanel; context: { sections: [loadedFilters.typeFilter], trigger: typeTrigger }"
++          />
++        }
++        @case ("more") {
++          <ng-container
++            *ngTemplateOutlet="filterPanel; context: { sections: [loadedFilters.archiveFilter, loadedFilters.trashFilter], trigger: moreTrigger }"
+           />
+-        </div>
+-        @for (f of filtersList; track f) {
+-          <div class="filter">
+-            <app-filter-section
+-              [activeFilter]="activeFilter"
+-              [section]="f"
+-              [isCollectionFilter]="f === filters?.collectionFilter"
+-            >
+-            </app-filter-section>
+-          </div>
+         }
+-      </div>
++      }
+     </div>
+   }
+-</div>
++</section>
++
++<ng-template #filterPanel let-sections="sections" let-trigger="trigger">
++  <div
++    id="vault-workspace-filter-options"
++    class="vault-workspace-filter-options filter"
++    (keydown.escape)="openFilter.set(null); trigger.focus()"
++  >
++    @for (section of sections; track section) {
++      <app-filter-section
++        [activeFilter]="activeFilter"
++        [section]="section"
++        (filterSelected)="openFilter.set(null); trigger.focus()"
++      />
++    }
++  </div>
++</ng-template>
+diff --git a/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.ts b/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.ts
+index 04e3307..87e2190 100644
+--- a/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.ts
++++ b/apps/web/src/app/vault/individual-vault/vault-filter/components/vault-filter.component.ts
+@@ -1,4 +1,4 @@
+-import { Component, EventEmitter, inject, input, Input, OnDestroy, OnInit, Output } from "@angular/core";
++import { Component, EventEmitter, inject, input, Input, OnDestroy, OnInit, Output, signal } from "@angular/core";
+ import {
+   combineLatest,
+   distinctUntilChanged,
+@@ -12,6 +12,7 @@ import {
+ } from "rxjs";
+ 
+ import { singleOrganizationPolicyApplies$ } from "@bitwarden/common/admin-console/abstractions/organization/organization.service.abstraction";
++import { Organization } from "@bitwarden/common/admin-console/models/domain/organization";
+ import { PolicyService } from "@bitwarden/common/admin-console/abstractions/policy/policy.service.abstraction";
+ import { PolicyType } from "@bitwarden/common/admin-console/enums";
+ import { getFirstPolicy } from "@bitwarden/common/admin-console/services/policy/default-policy.service";
+@@ -69,20 +70,45 @@ export class VaultFilterComponent implements OnInit, OnDestroy {
+   // eslint-disable-next-line @angular-eslint/prefer-output-emitter-ref
+   @Output() searchTextChanged = new EventEmitter<string>();
+ 
+-  readonly showCollectionFilter = input(true);
++  readonly toolbarOrganizations = input<Organization[]>([]);
++  protected readonly openFilter = signal<"vault" | "collection" | "folder" | "type" | "more" | null>(
++    null,
++  );
+ 
+   isLoaded = false;
+ 
+   protected destroy$: Subject<void> = new Subject<void>();
+-  get filtersList() {
+-    if (!this.filters) {
+-      return [];
+-    }
+-    return Object.values(this.filters).filter(
+-      (section) => this.showCollectionFilter() || section !== this.filters?.collectionFilter,
++  protected get allItemsSelected() {
++    return !(
++      this.activeFilter.selectedFolderNode ||
++      this.activeFilter.selectedCollectionNode ||
++      this.activeFilter.selectedOrganizationNode ||
++      (this.activeFilter.cipherStatus && this.activeFilter.cipherStatus !== "all")
+     );
+   }
+ 
++  protected toggleFilter(filter: "vault" | "folder" | "type" | "more") {
++    this.openFilter.update((current) => (current === filter ? null : filter));
++  }
++
++  protected async chooseAllItems() {
++    this.openFilter.set(null);
++    if (this.activeFilter.selectedOrganizationNode) {
++      const root = await firstValueFrom(this.vaultFilterService.organizationTree$);
++      await this.applyOrganizationFilter(root);
++    }
++    this.activeFilter.resetFilter();
++  }
++
++  protected async chooseFavorites() {
++    this.openFilter.set(null);
++    const root = await firstValueFrom(this.filters!.typeFilter.data$);
++    const favorites = root.children.find((item) => (item.node as CipherTypeFilter).type === "favorites");
++    if (favorites) {
++      await this.applyTypeFilter(favorites as TreeNode<CipherTypeFilter>);
++    }
++  }
++
+   protected organizationWarningsService = inject(OrganizationWarningsService);
+ 
+   get searchPlaceholder() {
+diff --git a/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.ts b/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.ts
+index 8f4252c..081a669 100644
+--- a/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.ts
++++ b/apps/web/src/app/vault/individual-vault/vault-filter/shared/components/vault-filter-section.component.ts
+@@ -1,6 +1,6 @@
+ // FIXME: Update this file to be type safe and remove this and next line
+ // @ts-strict-ignore
+-import { Component, computed, inject, input, InjectionToken, Injector, Input, signal } from "@angular/core";
++import { Component, computed, inject, input, InjectionToken, Injector, Input, model, output } from "@angular/core";
+ import { toObservable, toSignal } from "@angular/core/rxjs-interop";
+ import { firstValueFrom, Observable } from "rxjs";
+ import { map, switchMap } from "rxjs/operators";
+@@ -36,7 +36,8 @@ export class VaultFilterSectionComponent {
+   readonly collectionToolbar = input(false);
+   readonly toolbarOrganizations = input<Organization[]>([]);
+ 
+-  protected readonly toolbarExpanded = signal(false);
++  readonly toolbarExpanded = model(false);
++  readonly filterSelected = output();
+ 
+   protected readonly toolbarChoices = computed(() =>
+     this.collectionToolbar() ? this.collectionChoices(this.data()?.children ?? []) : [],
+@@ -142,6 +143,7 @@ export class VaultFilterSectionComponent {
+     }
+ 
+     await this.section().action(filterNode);
++    this.filterSelected.emit();
+   }
+ 
+   onEdit(filterNode: TreeNode<VaultFilterType>) {
+diff --git a/apps/web/src/app/vault/individual-vault/vault-header/vault-header.component.ts b/apps/web/src/app/vault/individual-vault/vault-header/vault-header.component.ts
+index c64f61f..a331683 100644
+--- a/apps/web/src/app/vault/individual-vault/vault-header/vault-header.component.ts
++++ b/apps/web/src/app/vault/individual-vault/vault-header/vault-header.component.ts
+@@ -186,7 +186,7 @@ export class VaultHeaderComponent {
+       return `${activeOrganization.name} ${this.i18nService.t("vault").toLowerCase()}`;
+     }
+ 
+-    return this.i18nService.t("allVaults");
++    return this.i18nService.t("passwords");
+   }
+ 
+   protected get icon() {
+diff --git a/apps/web/src/app/vault/individual-vault/vault.component.html b/apps/web/src/app/vault/individual-vault/vault.component.html
+index fb11444..e54f903 100644
+--- a/apps/web/src/app/vault/individual-vault/vault.component.html
++++ b/apps/web/src/app/vault/individual-vault/vault.component.html
+@@ -17,104 +17,99 @@
+ 
+ <app-vault-onboarding [ciphers]="ciphers"></app-vault-onboarding>
+ 
+-<div class="tw-flex tw-flex-row -tw-mx-2.5">
+-  <div class="tw-basis-1/4 tw-max-w-1/4 tw-px-2.5">
+-    <app-vault-filter
+-      #vaultFilter
+-      [activeFilter]="activeFilter"
+-      [showCollectionFilter]="false"
+-      [searchText]="currentSearchText$ | async"
+-      (searchTextChanged)="filterSearchText($event)"
+-      (onEditFolder)="editFolder($event)"
+-    ></app-vault-filter>
+-  </div>
+-  <div class="tw-basis-3/4 tw-max-w-3/4 tw-px-2.5">
+-    @if (activeFilter.isDeleted) {
+-      <bit-callout type="warning">
+-        {{ trashCleanupWarning }}
+-      </bit-callout>
+-    }
+-
+-    @if (showSubscriptionEndedMessaging$ | async) {
+-      <bit-callout type="subtle" [title]="'premiumSubscriptionEnded' | i18n">
+-        <ng-container>
+-          <div>
+-            {{ "premiumSubscriptionEndedDesc" | i18n }}
+-          </div>
+-          <a bitLink href="#" appStopClick (click)="navigateToGetPremium()">
+-            {{ "restartPremium" | i18n }}
+-          </a>
+-        </ng-container>
+-      </bit-callout>
+-    }
++<app-vault-filter
++  [activeFilter]="activeFilter"
++  [toolbarOrganizations]="allOrganizations"
++  [searchText]="currentSearchText$ | async"
++  (searchTextChanged)="filterSearchText($event)"
++  (onEditFolder)="editFolder($event)"
++></app-vault-filter>
+ 
+-    @if (vaultFilter.filters?.collectionFilter; as collectionFilter) {
+-      <app-filter-section
+-        [section]="collectionFilter"
+-        [activeFilter]="activeFilter"
+-        [isCollectionFilter]="true"
+-        [collectionToolbar]="true"
+-        [toolbarOrganizations]="allOrganizations"
+-      />
+-    }
++@if (activeFilter.isDeleted) {
++  <bit-callout type="warning">
++    {{ trashCleanupWarning }}
++  </bit-callout>
++}
+ 
+-    <app-vault-items
+-      #vaultItems
+-      [ciphers]="ciphers"
+-      [collections]="collections"
+-      [allCollections]="allCollections"
+-      [allOrganizations]="allOrganizations"
+-      [disabled]="refreshing"
+-      [showOwner]="true"
+-      [showCollections]="false"
+-      [showGroups]="false"
+-      [showPremiumFeatures]="canAccessPremium"
+-      [showBulkMove]="showBulkMove"
+-      [showBulkTrashOptions]="filter.type === 'trash'"
+-      [useEvents]="false"
+-      [showAdminActions]="false"
+-      [showBulkAddToCollections]="true"
+-      [userCanArchive]="userCanArchive$ | async"
+-      [enforceOrgDataOwnershipPolicy]="enforceOrgDataOwnershipPolicy$ | async"
+-      (onEvent)="onVaultItemsEvent($event)"
+-    >
+-    </app-vault-items>
+-    @if (performingInitialLoad) {
+-      <div class="tw-mt-6 tw-flex tw-h-full tw-flex-col tw-items-center tw-justify-start">
+-        <i
+-          class="bwi bwi-spinner bwi-spin tw-text-muted"
+-          title="{{ 'loading' | i18n }}"
+-          aria-hidden="true"
+-        ></i>
+-        <span class="tw-sr-only">{{ "loading" | i18n }}</span>
++@if (showSubscriptionEndedMessaging$ | async) {
++  <bit-callout type="subtle" [title]="'premiumSubscriptionEnded' | i18n">
++    <ng-container>
++      <div>
++        {{ "premiumSubscriptionEndedDesc" | i18n }}
+       </div>
+-    }
+-    @if (isEmpty && !performingInitialLoad) {
+-      <div class="tw-mt-6 tw-flex tw-h-full tw-flex-col tw-items-center tw-justify-start tw-flex-1">
+-        <bit-no-items [icon]="(emptyState$ | async)?.icon">
+-          <div slot="title">
+-            {{ (emptyState$ | async)?.title | i18n }}
+-          </div>
+-          <p slot="description" bitTypography="body2" class="tw-max-w-md tw-text-center">
+-            {{ (emptyState$ | async)?.description | i18n }}
+-          </p>
+-          @if (showAddCipherBtn) {
+-            <button
+-              type="button"
+-              [buttonType]="btnTextAddCreateFeatureFlag() ? 'secondary' : 'primary'"
+-              bitButton
+-              (click)="addCipher()"
+-              slot="button"
+-              [startIcon]="btnTextAddCreateFeatureFlag() ? null : 'bwi-plus'"
+-            >
+-              {{ (btnTextAddCreateFeatureFlag() ? "addItem" : "newItem") | i18n }}
+-            </button>
+-          }
+-        </bit-no-items>
++      <a bitLink href="#" appStopClick (click)="navigateToGetPremium()">
++        {{ "restartPremium" | i18n }}
++      </a>
++    </ng-container>
++  </bit-callout>
++}
++
++@if (!performingInitialLoad) {
++  <div class="tw-flex tw-items-center tw-justify-between tw-gap-3 tw-mb-3">
++    <h2 class="tw-m-0 tw-text-lg tw-font-semibold">
++      {{ (activeFilter.isFavorites ? "vaultWorkspaceFavoriteItems" : "vaultWorkspaceSavedItems") | i18n }}
++    </h2>
++    <span class="tw-text-sm tw-text-muted">
++      {{ "vaultWorkspaceResultCount" | i18n: ciphers.length + collections.length }}
++    </span>
++  </div>
++}
++
++<app-vault-items
++  #vaultItems
++  [ciphers]="ciphers"
++  [collections]="collections"
++  [allCollections]="allCollections"
++  [allOrganizations]="allOrganizations"
++  [disabled]="refreshing"
++  [showOwner]="true"
++  [showCollections]="false"
++  [showGroups]="false"
++  [showPremiumFeatures]="canAccessPremium"
++  [showBulkMove]="showBulkMove"
++  [showBulkTrashOptions]="filter.type === 'trash'"
++  [useEvents]="false"
++  [showAdminActions]="false"
++  [showBulkAddToCollections]="true"
++  [userCanArchive]="userCanArchive$ | async"
++  [enforceOrgDataOwnershipPolicy]="enforceOrgDataOwnershipPolicy$ | async"
++  (onEvent)="onVaultItemsEvent($event)"
++>
++</app-vault-items>
++@if (performingInitialLoad) {
++  <div class="tw-mt-6 tw-flex tw-h-full tw-flex-col tw-items-center tw-justify-start">
++    <i
++      class="bwi bwi-spinner bwi-spin tw-text-muted"
++      title="{{ 'loading' | i18n }}"
++      aria-hidden="true"
++    ></i>
++    <span class="tw-sr-only">{{ "loading" | i18n }}</span>
++  </div>
++}
++@if (isEmpty && !performingInitialLoad) {
++  <div class="tw-mt-6 tw-flex tw-h-full tw-flex-col tw-items-center tw-justify-start tw-flex-1">
++    <bit-no-items [icon]="(emptyState$ | async)?.icon">
++      <div slot="title">
++        {{ (emptyState$ | async)?.title | i18n }}
+       </div>
+-    }
++      <p slot="description" bitTypography="body2" class="tw-max-w-md tw-text-center">
++        {{ (emptyState$ | async)?.description | i18n }}
++      </p>
++      @if (showAddCipherBtn) {
++        <button
++          type="button"
++          [buttonType]="btnTextAddCreateFeatureFlag() ? 'secondary' : 'primary'"
++          bitButton
++          (click)="addCipher()"
++          slot="button"
++          [startIcon]="btnTextAddCreateFeatureFlag() ? null : 'bwi-plus'"
++        >
++          {{ (btnTextAddCreateFeatureFlag() ? "addItem" : "newItem") | i18n }}
++        </button>
++      }
++    </bit-no-items>
+   </div>
+-</div>
++}
+ 
+ @if (vaultBatchBarFeatureFlag()) {
+   <bit-vault-batch-action />
+diff --git a/apps/web/src/css/vault-filters.css b/apps/web/src/css/vault-filters.css
+index 900a70a..f9fb95e 100644
+--- a/apps/web/src/css/vault-filters.css
++++ b/apps/web/src/css/vault-filters.css
+@@ -247,3 +247,169 @@
+     transition: none;
+   }
+ }
++
++/* The toolbar shares the Vault table's available width. */
++.vault-workspace-filter-row {
++  display: flex;
++  flex-wrap: wrap;
++  align-items: flex-start;
++  gap: 0 0.5rem;
++}
++
++.vault-workspace-filter-row > app-filter-section,
++.vault-workspace-filter-row .vault-collection-toolbar {
++  display: contents;
++}
++
++.vault-workspace-filter-row .vault-collection-trigger {
++  margin-block-end: 0.5rem;
++  background: rgb(var(--color-background-alt));
++  max-width: min(100%, 16rem);
++}
++
++.vault-workspace-filter-row .vault-collection-trigger[aria-pressed="true"],
++.vault-workspace-filter-row .vault-collection-trigger.vault-collection-active {
++  border-color: rgb(var(--color-primary-600));
++  color: rgb(var(--color-primary-600));
++}
++
++.vault-workspace-filter-row .vault-collection-unfold,
++.vault-workspace-filter-options {
++  order: 1;
++  flex: 0 0 100%;
++  min-width: 0;
++}
++
++.vault-workspace-filter-options {
++  max-height: 15rem;
++  overflow: auto;
++  padding: 0.625rem;
++  border: 1px solid rgb(var(--color-secondary-300));
++  border-radius: 0.75rem;
++  background: rgb(var(--color-background-alt));
++}
++
++.vault-workspace-filter-options .filter-button {
++  padding: 0.25rem 0.125rem;
++}
++
++.vault-workspace-clear-filter {
++  min-height: 2.25rem;
++  padding: 0.375rem 0.5rem;
++  color: rgb(var(--color-primary-600));
++  font-size: 0.875rem;
++  text-decoration: underline;
++  text-underline-offset: 0.2em;
++}
++
++.vault-workspace-footer {
++  display: flex;
++  align-items: center;
++  gap: 0.375rem;
++  padding: 0.625rem 0.75rem;
++}
++
++.vault-workspace-footer-compact {
++  flex-direction: column;
++  padding: 0.375rem 0.25rem;
++}
++
++.vault-workspace-settings-button,
++.vault-workspace-rail-link {
++  display: flex;
++  align-items: center;
++  gap: 0.5rem;
++  width: 100%;
++  min-height: 2.375rem;
++  padding: 0.375rem 0.625rem;
++  border-radius: 0.5rem;
++  color: inherit;
++  font-weight: 500;
++  text-align: start;
++}
++
++.vault-workspace-settings-button:hover,
++.vault-workspace-settings-button[aria-expanded="true"],
++.vault-workspace-rail-link:hover,
++.vault-workspace-rail-active {
++  background: var(--color-nav-bg-primary-hover);
++  color: inherit;
++  text-decoration: none;
++}
++
++.vault-workspace-settings-button:not(.vault-workspace-rail-link) {
++  background: var(--color-nav-bg-primary-hover);
++}
++
++.vault-workspace-rail-link {
++  flex-direction: column;
++  justify-content: center;
++  gap: 0.25rem;
++  width: 3.25rem;
++  min-height: 3rem;
++  margin-inline: auto;
++  padding: 0.25rem;
++  font-size: 0.625rem;
++}
++
++.vault-workspace-rail-link .bwi {
++  font-size: 0.9375rem;
++}
++
++.vault-workspace-settings {
++  width: min(16.5rem, calc(100vw - 5.5rem));
++  max-height: min(34rem, calc(100dvh - 2rem));
++  overflow: auto;
++  padding: 0.375rem;
++  border: 1px solid rgb(var(--color-secondary-300));
++  border-radius: 0.75rem;
++  background: rgb(var(--color-background-alt));
++  color: rgb(var(--color-text-main));
++  box-shadow: 0 0.75rem 1.875rem rgb(0 0 0 / 22%);
++  animation: vault-workspace-settings-in 140ms ease-out both;
++}
++
++.vault-workspace-settings-title {
++  padding: 0.5rem 0.625rem;
++  color: rgb(var(--color-text-muted));
++  font-size: 0.75rem;
++  font-weight: 600;
++}
++
++.vault-workspace-settings :is(a, button) {
++  display: flex;
++  align-items: center;
++  gap: 0.625rem;
++  width: 100%;
++  min-height: 2.125rem;
++  padding: 0.375rem 0.625rem;
++  border-radius: 0.375rem;
++  color: inherit;
++  font-size: 0.875rem;
++  text-align: start;
++  text-decoration: none;
++}
++
++.vault-workspace-settings :is(a, button):is(:hover, :focus-visible) {
++  background: rgb(var(--color-background));
++}
++
++.vault-workspace-settings hr {
++  margin: 0.375rem 0.5rem;
++  border-color: rgb(var(--color-secondary-300));
++}
++
++.vault-workspace-tools {
++  padding-inline-start: 1.5rem;
++}
++
++@keyframes vault-workspace-settings-in {
++  from { opacity: 0; transform: translateY(0.25rem); }
++  to { opacity: 1; transform: translateY(0); }
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .vault-workspace-settings {
++    animation: none;
++  }
++}
+diff --git a/apps/web/src/locales/en/messages.json b/apps/web/src/locales/en/messages.json
+index b63b1a6..6f4c040 100644
+--- a/apps/web/src/locales/en/messages.json
++++ b/apps/web/src/locales/en/messages.json
+@@ -15546,5 +15546,25 @@
+         "example": "Login"
+       }
+     }
++  },
++  "vaultWorkspaceAdminShort": {
++    "message": "Admin"
++  },
++  "vaultWorkspaceMoreFilters": {
++    "message": "More filters"
++  },
++  "vaultWorkspaceSavedItems": {
++    "message": "Saved items"
++  },
++  "vaultWorkspaceFavoriteItems": {
++    "message": "Favorite items"
++  },
++  "vaultWorkspaceResultCount": {
++    "message": "$COUNT$ results",
++    "placeholders": {
++      "count": {
++        "content": "$1"
++      }
++    }
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/libs/components/src/navigation/side-nav.component.html b/libs/components/src/navigation/side-nav.component.html
+index 9a0be5f..6a75469 100644
+--- a/libs/components/src/navigation/side-nav.component.html
++++ b/libs/components/src/navigation/side-nav.component.html
+@@ -28,7 +28,7 @@
+         <div class="tw-flex-1">
+           <ng-content></ng-content>
+         </div>
+-        @if (open) {
++        @if (open || workspaceFooter()) {
+           <div
+             class="tw-w-full tw-bg-bg-nav [@container_(min-height:600px)]:tw-sticky [@container_(min-height:600px)]:tw-bottom-0"
+           >
+@@ -39,22 +39,27 @@
+     </div>
+     <div class="tw-w-full tw-bg-bg-nav">
+       <bit-nav-divider></bit-nav-divider>
+-      @if (open) {
+-        <ng-content select="[slot=footer]"></ng-content>
+-      }
+-      <div class="tw-m-4">
+-        <button
+-          #toggleButton
+-          type="button"
+-          class="tw-mx-auto tw-block"
+-          [bitIconButton]="open ? 'bwi-angle-left' : 'bwi-angle-right'"
+-          buttonType="side-nav"
+-          size="small"
+-          (click)="sideNavService.toggle()"
+-          [label]="'toggleSideNavigation' | i18n"
+-          [attr.aria-expanded]="open"
+-          aria-controls="bit-side-nav"
+-        ></button>
++      <div
++        [class.vault-workspace-footer]="workspaceFooter()"
++        [class.vault-workspace-footer-compact]="workspaceFooter() && !open"
++      >
++        @if (open || workspaceFooter()) {
++          <ng-content select="[slot=footer]"></ng-content>
++        }
++        <div [class.tw-m-4]="!workspaceFooter()">
++          <button
++            #toggleButton
++            type="button"
++            class="tw-mx-auto tw-block"
++            [bitIconButton]="open ? 'bwi-angle-left' : 'bwi-angle-right'"
++            buttonType="side-nav"
++            size="small"
++            (click)="sideNavService.toggle()"
++            [label]="'toggleSideNavigation' | i18n"
++            [attr.aria-expanded]="open"
++            aria-controls="bit-side-nav"
++          ></button>
++        </div>
+       </div>
+     </div>
+   </nav>
+diff --git a/libs/components/src/navigation/side-nav.component.ts b/libs/components/src/navigation/side-nav.component.ts
+index 800d521..49d5376 100644
+--- a/libs/components/src/navigation/side-nav.component.ts
++++ b/libs/components/src/navigation/side-nav.component.ts
+@@ -53,6 +53,8 @@ export class SideNavComponent {
+    */
+   readonly variant = input<SideNavVariant>("primary");
+ 
++  readonly workspaceFooter = input(false);
++
+   private readonly toggleButton = viewChild("toggleButton", { read: ElementRef });
+ 
+   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);

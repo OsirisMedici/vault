@@ -1,0 +1,235 @@
+--- a/apps/desktop/desktop_native/objc/build.rs
++++ b/apps/desktop/desktop_native/objc/build.rs
+@@ -31,6 +31,7 @@ fn main() {
+     // Link required frameworks
+     println!("cargo:rustc-link-lib=framework=Foundation");
+     println!("cargo:rustc-link-lib=framework=AppKit");
++    println!("cargo:rustc-link-lib=framework=AuthenticationServices");
+ }
+ 
+ #[cfg(not(target_os = "macos"))]
+--- a/apps/desktop/src/entry.ts
++++ b/apps/desktop/src/entry.ts
+@@ -1,57 +1,19 @@
+-// FIXME: Update this file to be type safe and remove this and next line
+-// @ts-strict-ignore
+-import { spawn } from "child_process";
++// Vault derivative: desktop identity is set before loading services or Keychain namespaces.
+ import * as path from "path";
+ 
+ import { app } from "electron";
+ 
+ import { DEV_ICON_FILE, isDev } from "./utils";
+ 
+-if (
+-  process.platform === "darwin" &&
+-  process.argv.some((arg) => arg.indexOf("chrome-extension://") !== -1 || arg.indexOf("{") !== -1)
+-) {
+-  // If we're on MacOS, we need to support DuckDuckGo's IPC communication,
+-  // which for the moment is launching the Bitwarden process.
+-  // Ideally the browser would instead startup the desktop_proxy process
+-  // when available, but for now we'll just launch it here.
++app.setName("Vault");
+ 
+-  app.on("ready", () => {
+-    app.dock.hide();
+-  });
++// Browser proxy launch is excluded from this isolated macOS candidate.
++if (isDev() && process.platform === "darwin") {
++  const devIcon = path.join(__dirname, "images", DEV_ICON_FILE);
++  void app.whenReady().then(() => app.dock.setIcon(devIcon));
++}
+ 
+-  const proc = spawn(
+-    path.join(process.execPath, "..", "desktop_proxy.inherit"),
+-    process.argv.slice(1),
+-    {
+-      cwd: process.cwd(),
+-      stdio: "inherit",
+-      shell: false,
+-    },
+-  );
+-
+-  proc.on("exit", (...args) => {
+-    // eslint-disable-next-line no-console
+-    console.error("Proxy process exited", args);
+-    process.exit(0);
+-  });
+-  proc.on("error", (...args) => {
+-    // eslint-disable-next-line no-console
+-    console.error("Proxy process errored", args);
+-    process.exit(1);
+-  });
+-} else {
+-  // macOS draws no window icon, so the dock is the only place a dev client can be told apart
+-  // from an installed one. __dirname is the build output directory at runtime.
+-  if (isDev() && process.platform === "darwin") {
+-    const devIcon = path.join(__dirname, "images", DEV_ICON_FILE);
+-
+-    void app.whenReady().then(() => app.dock.setIcon(devIcon));
+-  }
+-
+-  // eslint-disable-next-line
+-  const Main = require("./main").Main;
+-
+-  const main = new Main();
+-  main.bootstrap();
+-}
++// eslint-disable-next-line @typescript-eslint/no-require-imports
++const Main = require("./main").Main;
++const main = new Main();
++main.bootstrap();
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -115,15 +115,8 @@
+   ipcService: IpcService;
+ 
+   constructor() {
+-    // Set paths for portable builds
+-    let appDataPath = null;
+-    if (process.env.BITWARDEN_APPDATA_DIR != null) {
+-      appDataPath = process.env.BITWARDEN_APPDATA_DIR;
+-    } else if (process.platform === "win32" && process.env.PORTABLE_EXECUTABLE_DIR != null) {
+-      appDataPath = path.join(process.env.PORTABLE_EXECUTABLE_DIR, "bitwarden-appdata");
+-    } else if (process.platform === "linux" && process.env.SNAP_USER_DATA != null) {
+-      appDataPath = path.join(process.env.SNAP_USER_DATA, "appdata");
+-    }
++    // Vault uses its own profile and never reads the official client's app-data override.
++    const appDataPath = path.join(app.getPath("appData"), "Vault");
+ 
+     app.on("ready", () => {
+       // on ready stuff...
+@@ -442,16 +435,8 @@
+           this.logService.error("Error while setting up native messaging:", err);
+         }
+ 
+-        app.removeAsDefaultProtocolClient("bitwarden");
+-        if (process.env.NODE_ENV === "development" && process.platform === "win32") {
+-          // Fix development build on Windows requiring a different protocol client
+-          app.setAsDefaultProtocolClient("bitwarden", process.execPath, [
+-            process.argv[1],
+-            path.resolve(process.argv[2]),
+-          ]);
+-        } else {
+-          app.setAsDefaultProtocolClient("bitwarden");
+-        }
++        // Shared bitwarden:// registration stays with the official client.
++        // Vault browser/SSO callbacks need a separately reviewed integration.
+ 
+         // Process protocol for macOS
+         app.on("open-url", (event, url) => {
+--- a/apps/desktop/src/main/updater.main.ts
++++ b/apps/desktop/src/main/updater.main.ts
+@@ -267,14 +267,7 @@
+   }
+ 
+   private userDisabledUpdates(): boolean {
+-    for (const arg of process.argv) {
+-      if (arg != null && arg.toUpperCase().indexOf("--ELECTRON_NO_UPDATER=1") > -1) {
+-        return true;
+-      }
+-      if (arg != null && arg.toUpperCase().indexOf("--BITWARDEN_NO_UPDATER=1") > -1) {
+-        return true;
+-      }
+-    }
+-    return process.env.ELECTRON_NO_UPDATER === "1" || process.env.BITWARDEN_NO_UPDATER === "1";
++    // Vault has no reviewed update feed. Never fetch or install upstream releases.
++    return true;
+   }
+ }
+--- a/apps/desktop/src/main/native-messaging.main.ts
++++ b/apps/desktop/src/main/native-messaging.main.ts
+@@ -15,6 +15,8 @@
+ import { WindowMain } from "./window.main";
+ 
+ export class NativeMessagingMain {
++  // Keep official browser manifests and sockets untouched, including remove calls.
++  private readonly vaultBrowserIntegrationDisabled = true;
+   private ipcServer: ipc.NativeIpcServer | null;
+   private connected: number[] = [];
+ 
+@@ -78,6 +80,9 @@
+   }
+ 
+   async listen() {
++    if (this.vaultBrowserIntegrationDisabled) {
++      return;
++    }
+     if (this.ipcServer) {
+       this.ipcServer.stop();
+     }
+@@ -161,6 +166,9 @@
+   }
+ 
+   async generateManifests() {
++    if (this.vaultBrowserIntegrationDisabled) {
++      return;
++    }
+     const binaryPath = this.binaryPath();
+     if (!existsSync(binaryPath)) {
+       throw new Error(`Unable to find proxy binary: ${binaryPath}`);
+@@ -328,6 +336,9 @@
+   }
+ 
+   async generateDdgManifests() {
++    if (this.vaultBrowserIntegrationDisabled) {
++      return;
++    }
+     const manifest = {
+       name: "com.8bit.bitwarden",
+       description: "Bitwarden desktop <-> DuckDuckGo bridge",
+@@ -352,6 +363,9 @@
+   }
+ 
+   async removeManifests() {
++    if (this.vaultBrowserIntegrationDisabled) {
++      return;
++    }
+     switch (process.platform) {
+       case "win32": {
+         await this.removeIfExists(path.join(this.userPath, "browsers", "firefox.json"));
+@@ -398,6 +412,9 @@
+   }
+ 
+   async removeDdgManifests() {
++    if (this.vaultBrowserIntegrationDisabled) {
++      return;
++    }
+     switch (process.platform) {
+       case "darwin": {
+         /* eslint-disable-next-line no-useless-escape */
+--- a/apps/desktop/src/index.html
++++ b/apps/desktop/src/index.html
+@@ -8,7 +8,7 @@
+         img-src 'self' data: *; child-src *; frame-src *; connect-src *;"
+     />
+     <meta name="viewport" content="width=device-width, initial-scale=1" />
+-    <title>Bitwarden</title>
++    <title>Vault</title>
+     <base href="" />
+   </head>
+   <body>
+--- a/apps/desktop/src/package.json
++++ b/apps/desktop/src/package.json
+@@ -1,16 +1,16 @@
+ {
+-  "name": "@bitwarden/desktop",
+-  "productName": "Bitwarden",
+-  "desktopName": "bitwarden.desktop",
++  "name": "vault",
++  "productName": "Vault",
++  "desktopName": "vault.desktop",
+   "description": "A secure and free password manager for all of your devices.",
+   "version": "2026.10.0",
+   "author": "Bitwarden Inc. <hello@bitwarden.com> (https://bitwarden.com)",
+-  "homepage": "https://bitwarden.com",
++  "homepage": "https://github.com/OsirisMedici/vault",
+   "license": "GPL-3.0",
+   "main": "main.js",
+   "repository": {
+     "type": "git",
+-    "url": "git+https://github.com/bitwarden/clients.git"
++    "url": "git+https://github.com/OsirisMedici/vault.git"
+   },
+   "dependencies": {
+     "@bitwarden/desktop-napi": "file:../desktop_native/napi"
