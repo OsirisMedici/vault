@@ -1,0 +1,291 @@
+--- a/apps/web/src/app/vault/components/vault-items/vault-cipher-row.component.html
++++ b/apps/web/src/app/vault/components/vault-items/vault-cipher-row.component.html
+@@ -1,3 +1,41 @@
++<ng-template #loginCopyActions>
++  @if (isLoginCipher && !decryptionFailure) {
++    @if (cipher.viewPassword) {
++      <button
++        type="button"
++        bitIconButton="bwi-clone"
++        size="small"
++        appCopyField="loginCredentials"
++        [cipher]="cipher"
++        [copyDisabled]="disabled"
++        [label]="'copyLoginCredentials' | i18n"
++        appStopProp
++      ></button>
++    }
++    <button
++      type="button"
++      bitIconButton="bwi-user"
++      size="small"
++      appCopyField="username"
++      [cipher]="cipher"
++      [copyDisabled]="disabled"
++      [label]="'copyUsername' | i18n"
++      appStopProp
++    ></button>
++    @if (cipher.viewPassword) {
++      <button
++        type="button"
++        bitIconButton="bwi-key"
++        size="small"
++        appCopyField="password"
++        [cipher]="cipher"
++        [copyDisabled]="disabled"
++        [label]="'copyPassword' | i18n"
++        appStopProp
++      ></button>
++    }
++  }
++</ng-template>
+ <td bitCell [ngClass]="RowHeightClass" class="tw-min-w-fit">
+   @if (showCheckbox) {
+     <input
+@@ -118,8 +156,11 @@
+     }
+   </bit-menu>
+   @if (!decryptionFailure) {
+-    <span class="tw-relative tw-inline-flex tw-items-center">
+-      @if (showCopyAndLaunchActions$ | async) {
++    <span class="tw-relative tw-inline-flex tw-items-center tw-gap-2">
++      <span class="tw-hidden tw-items-center tw-gap-2 sm:tw-inline-flex" appStopProp>
++        <ng-container *ngTemplateOutlet="loginCopyActions"></ng-container>
++      </span>
++      @if (!isLoginCipher && (showCopyAndLaunchActions$ | async)) {
+         <div
+           class="tw-absolute tw-right-full tw-inset-y-0 tw-flex tw-items-center tw-gap-2 tw-pr-2 tw-opacity-0 tw-pointer-events-none tw-transition-opacity group-hover/cipher-row:tw-opacity-100 group-hover/cipher-row:tw-pointer-events-auto group-has-[:focus-visible]/cipher-row:tw-opacity-100 group-has-[:focus-visible]/cipher-row:tw-pointer-events-auto [&:has([aria-expanded='true'])]:tw-opacity-100 [&:has([aria-expanded='true'])]:tw-pointer-events-auto"
+         >
+@@ -148,14 +189,19 @@
+         label="{{ 'options' | i18n }}"
+       ></button>
+       <bit-menu #cipherOptions>
+-        @if (isLoginCipher && cipher.viewPassword) {
+-          <button type="button" bitMenuItem appCopyField="loginCredentials" [cipher]="cipher">
+-            <i class="bwi bwi-fw bwi-clone" aria-hidden="true"></i>
+-            {{ "copyLoginCredentials" | i18n }}
+-          </button>
+-        }
+-        @if (!(showCopyAndLaunchActions$ | async)) {
++        @if (isLoginCipher || !(showCopyAndLaunchActions$ | async)) {
+           @if (isLoginCipher) {
++            @if (cipher.viewPassword) {
++              <button
++                type="button"
++                bitMenuItem
++                appCopyField="loginCredentials"
++                [cipher]="cipher"
++              >
++                <i class="bwi bwi-fw bwi-clone" aria-hidden="true"></i>
++                {{ "copyLoginCredentials" | i18n }}
++              </button>
++            }
+             <button type="button" bitMenuItem appCopyField="username" [cipher]="cipher">
+               <i class="bwi bwi-fw bwi-clone" aria-hidden="true"></i>
+               {{ "copyUsername" | i18n }}
+--- a/apps/web/src/app/vault/components/vault-items/vault-cipher-row.component.spec.ts
++++ b/apps/web/src/app/vault/components/vault-items/vault-cipher-row.component.spec.ts
+@@ -67,14 +67,18 @@
+         { provide: I18nService, useValue: { t: (key: string) => key } },
+         {
+           provide: EnvironmentService,
+-          useValue: { environment$: new BehaviorSubject({}).asObservable() },
++          useValue: {
++            environment$: new BehaviorSubject({
++              getIconsUrl: () => "https://example.invalid",
++            }).asObservable(),
++          },
+         },
+         {
+           provide: DomainSettingsService,
+           useValue: { showFavicons$: new BehaviorSubject(false).asObservable() },
+         },
+         { provide: CopyCipherFieldService, useValue: mock<CopyCipherFieldService>() },
+-        { provide: AccountService, useValue: mock<AccountService>() },
++        { provide: AccountService, useValue: { activeAccount$: of(null) } },
+         { provide: CipherService, useValue: mock<CipherService>() },
+         { provide: PremiumUpgradePromptService, useValue: mock<PremiumUpgradePromptService>() },
+         {
+@@ -254,4 +258,55 @@
+       expect(component["showAssignToCollections"]).toBeFalsy();
+     });
+   });
++  describe("visible login copy actions", () => {
++    beforeEach(() => {
++      const cipher = new CipherView();
++      cipher.id = "dummy-login";
++      cipher.name = "Dummy login";
++      cipher.type = CipherType.Login;
++      cipher.login.username = "dummy-user";
++      cipher.login.password = "dummy-password";
++      cipher.viewPassword = true;
++      component.cipher = cipher;
++      component.disabled = false;
++    });
++
++    const fields = () =>
++      Array.from(
++        fixture.nativeElement.querySelectorAll("button[appcopyfield]"),
++        (button: Element) => button.getAttribute("appcopyfield"),
++      );
++
++    it("offers all three actions outside the menu", async () => {
++      fixture.detectChanges();
++      await fixture.whenStable();
++      expect(fields()).toEqual(["loginCredentials", "username", "password"]);
++    });
++
++    it("keeps all three direct actions when upstream quick actions are enabled", () => {
++      jest.mocked(TestBed.inject(ConfigService).getFeatureFlag$).mockReturnValue(of(true));
++      fixture = TestBed.createComponent(VaultCipherRowComponent);
++      fixture.componentInstance.cipher = component.cipher;
++      fixture.detectChanges();
++      expect(fields()).toEqual(["loginCredentials", "username", "password"]);
++    });
++
++    it("does not offer either password action without password permission", () => {
++      component.cipher.viewPassword = false;
++      fixture.detectChanges();
++      expect(fields()).toEqual(["username"]);
++    });
++
++    it.each(["deletedDate", "archivedDate"])("offers no quick copies for %s items", (field) => {
++      component.cipher[field] = new Date();
++      fixture.detectChanges();
++      expect(fields()).toEqual([]);
++    });
++
++    it("does not render quick copies for secure notes", () => {
++      (component.cipher as CipherView).type = CipherType.SecureNote;
++      fixture.detectChanges();
++      expect(fields()).toEqual([]);
++    });
++  });
+ });
+--- a/apps/web/src/app/vault/components/vault-items/vault-items.component.html
++++ b/apps/web/src/app/vault/components/vault-items/vault-items.component.html
+@@ -70,7 +70,7 @@
+               ? 'tw-w-28'
+               : batchBarService?.enabled()
+                 ? 'tw-w-24'
+-                : 'tw-w-12') + ' tw-text-right'
++                : 'tw-w-12') + ' tw-text-right sm:tw-w-48'
+           "
+         >
+           @if (!batchBarService?.enabled()) {
+--- a/libs/vault/src/components/copy-cipher-field.directive.ts
++++ b/libs/vault/src/components/copy-cipher-field.directive.ts
+@@ -44,6 +44,10 @@
+   @Input({ required: true })
+   cipher!: CipherViewLike;
+ 
++  // FIXME(https://bitwarden.atlassian.net/browse/CL-903): Migrate to Signals
++  // eslint-disable-next-line @angular-eslint/prefer-signals
++  @Input() copyDisabled = false;
++
+   constructor(
+     private copyCipherFieldService: CopyCipherFieldService,
+     private accountService: AccountService,
+@@ -66,7 +70,13 @@
+ 
+   @HostListener("click")
+   async copy() {
++    if (this.copyDisabled || !this.cipher || !this.hasValueToCopy()) {
++      return;
++    }
+     const value = await this.getValueToCopy();
++    if (this.action === "loginCredentials" && !value) {
++      return;
++    }
+     await this.copyCipherFieldService.copy(value ?? "", this.action, this.cipher);
+   }
+ 
+@@ -76,6 +86,7 @@
+ 
+   private async updateDisabledState() {
+     this.disabled =
++      this.copyDisabled ||
+       !this.cipher ||
+       !this.hasValueToCopy() ||
+       (this.action === "totp" && !(await this.copyCipherFieldService.totpAllowed(this.cipher)))
+--- a/libs/vault/src/components/copy-cipher-field.directive.spec.ts
++++ b/libs/vault/src/components/copy-cipher-field.directive.spec.ts
+@@ -1,4 +1,5 @@
+ import { mock } from "jest-mock-extended";
++import { CipherListView } from "@bitwarden/sdk-internal";
+ import { of } from "rxjs";
+ 
+ import { Account, AccountService } from "@bitwarden/common/auth/abstractions/account.service";
+@@ -254,4 +255,72 @@
+       );
+     });
+   });
++  describe("combined login credentials", () => {
++    beforeEach(() => {
++      const cipher = copyCipherFieldDirective.cipher as CipherView;
++      cipher.viewPassword = true;
++      cipher.login.username = "dummy-user";
++      cipher.login.password = "dummy-password";
++      copyCipherFieldDirective.action = "loginCredentials";
++    });
++
++    it("copies both fields in one write, with the username on the first line", async () => {
++      await copyCipherFieldDirective.copy();
++      expect(copyFieldService.copy).toHaveBeenCalledTimes(1);
++      expect(copyFieldService.copy).toHaveBeenCalledWith(
++        "dummy-user\ndummy-password",
++        "loginCredentials",
++        copyCipherFieldDirective.cipher,
++      );
++    });
++
++    it.each(["username", "password"])("disables and refuses copying without %s", async (field) => {
++      (copyCipherFieldDirective.cipher as CipherView).login[field] = "";
++      await copyCipherFieldDirective.ngOnChanges();
++      expect(copyCipherFieldDirective["disabled"]).toBe(true);
++      await copyCipherFieldDirective.copy();
++      expect(copyFieldService.copy).not.toHaveBeenCalled();
++    });
++
++    it.each([true, false])(
++      "decrypts a list item and rechecks password permission: %s",
++      async (allowed) => {
++        const fullCipher = copyCipherFieldDirective.cipher as CipherView;
++        fullCipher.viewPassword = allowed;
++        copyCipherFieldDirective.cipher = {
++          id: "00000000-0000-0000-0000-000000000001",
++          type: { login: { username: "dummy-user" } },
++          copyableFields: ["LoginUsername", "LoginPassword"],
++          viewPassword: true,
++        } as CipherListView;
++        jest.mocked(mockCipherService.get).mockResolvedValue(null);
++        jest.mocked(mockCipherService.decrypt).mockResolvedValue(fullCipher);
++        await copyCipherFieldDirective.copy();
++        expect(mockCipherService.decrypt).toHaveBeenCalledTimes(1);
++        if (allowed) {
++          expect(copyFieldService.copy).toHaveBeenCalledWith(
++            "dummy-user\ndummy-password",
++            "loginCredentials",
++            copyCipherFieldDirective.cipher,
++          );
++        } else {
++          expect(copyFieldService.copy).not.toHaveBeenCalled();
++        }
++      },
++    );
++
++    it("refuses copying when passwords are hidden", async () => {
++      copyCipherFieldDirective.cipher.viewPassword = false;
++      await copyCipherFieldDirective.copy();
++      expect(copyFieldService.copy).not.toHaveBeenCalled();
++    });
++
++    it("refuses copying while the row is disabled", async () => {
++      copyCipherFieldDirective.copyDisabled = true;
++      await copyCipherFieldDirective.ngOnChanges();
++      expect(copyCipherFieldDirective["disabled"]).toBe(true);
++      await copyCipherFieldDirective.copy();
++      expect(copyFieldService.copy).not.toHaveBeenCalled();
++    });
++  });
+ });

@@ -67,6 +67,10 @@ tests and pending release acceptance. This is separate from the deployed
 display-only overlay above. Use the OSS `npm run dist:oss:selfhost` target and
 audit the license coverage of any additional modules before enabling them.
 
+The source candidate also adds [login row copy icons](docs/login-row-copy.md)
+for copying a username and password together or either field individually.
+This feature requires a source build and reviewed release to become live.
+
 ## Host it
 
 Vault is a custom image of the same Vaultwarden server. It is not a migration

@@ -32,6 +32,14 @@ policy editor tests. It retains strength warnings, explicit organization policy
 enforcement, cryptography and upstream notices. This candidate is not deployed
 by the display-only overlay build. See `docs/short-master-passwords.md`.
 
+The source candidate also applies `patches/web-login-row-copy.patch` to the
+GPL web UI and shared copy components. It adds row copy icons, a protected
+combined-credentials copy action, English labels and regression tests. Existing
+upstream licenses, permissions and reprompt handling are retained. See
+`docs/login-row-copy.md`; no release is produced by source preparation alone.
+The independent `patches/web-login-row-copy-release.patch` reuses the existing
+combined-copy action when continuing the compact workspace release.
+
 The desktop candidate uses the GPL OSS target and the original macOS Touch ID
 and Keychain implementation. Vault's changes and pending signing/runtime checks
 are recorded in `branding/desktop/MODIFICATIONS.md` and `docs/desktop.md`.

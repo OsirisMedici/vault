@@ -11,7 +11,11 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / 'upstream/web'
-PATCHES = [ROOT / 'branding/web-source.patch', ROOT / 'patches/web-short-master-passwords.patch']
+PATCHES = [
+    ROOT / 'branding/web-source.patch',
+    ROOT / 'patches/web-short-master-passwords.patch',
+    ROOT / 'patches/web-login-row-copy.patch',
+]
 
 
 def run(*args):
