@@ -40,6 +40,7 @@ overlay from a fresh checkout or an empty asset and output directory.
 | Goal | Start here |
 | --- | --- |
 | Build the compact workspace with the collapsible sidebar and collection toolbar | [Compact web build and acceptance](docs/compact-web-release.md) |
+| Add one-click login copy icons | [Source preparation and acceptance](docs/login-row-copy.md) |
 | Run Vault on an existing Vaultwarden host | [Operations and rollback](docs/operations.md) |
 | Evaluate the macOS desktop candidate | [Desktop source and signing status](docs/desktop.md) |
 | Explore agent credential brokering with dummy data | [Agent Vault evaluation](docs/agent-vault-evaluation-2026-10-22.md) |
